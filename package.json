@@ -1,6 +1,6 @@
 {
   "name": "whistle-mock-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Personal desktop mock workspace for Whistle",
   "author": "Whistle Mock Manager",
@@ -9,13 +9,14 @@
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs && node scripts/build-native.mjs",
     "start": "electron .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:desktop": "node scripts/desktop-test.mjs",
-    "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs"
+    "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs",
+    "test:system-proxy:desktop": "node --import tsx scripts/system-proxy-desktop-test.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -39,10 +40,30 @@
   "build": {
     "appId": "local.whistle.mockmanager",
     "productName": "Whistle Mock Manager",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*", "package.json", "!node_modules/**/*"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
     "asar": true,
     "electronDist": "node_modules/electron/dist",
-    "mac": { "category": "public.app-category.developer-tools", "identity": null, "icon": "assets/icon.png", "target": ["dir"] }
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "icon": "assets/icon.png",
+      "target": [
+        "dir"
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "dist-native/system-proxy",
+        "to": "system-proxy"
+      }
+    ]
   }
 }

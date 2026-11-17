@@ -16,6 +16,14 @@ export interface ConnectionStatus {
   canRecover?: boolean;
 }
 export interface ApplyResult { data: AppData; status: ConnectionStatus }
+export interface SystemProxyStatus {
+  supported: boolean;
+  state: 'off' | 'on' | 'changed' | 'external' | 'error';
+  managed: boolean;
+  address?: string;
+  services: string[];
+  message?: string;
+}
 export interface DesktopBridge {
   load(): Promise<AppData>;
   save(data: AppData): Promise<AppData>;
@@ -32,5 +40,8 @@ export interface DesktopBridge {
   importResponse(): Promise<string | null>;
   openWhistle(): Promise<void>;
   openDataFolder(): Promise<void>;
+  systemProxyStatus(): Promise<SystemProxyStatus>;
+  setSystemProxy(enabled: boolean): Promise<SystemProxyStatus>;
+  releaseSystemProxy(): Promise<SystemProxyStatus>;
 }
 declare global { interface Window { mockManager: DesktopBridge } }

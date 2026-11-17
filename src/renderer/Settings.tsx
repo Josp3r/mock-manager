@@ -1,7 +1,7 @@
 import { ExternalLink, FolderOpen, RefreshCw, Unplug } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { timeLabel } from './model';
-import { Button, Dialog, Notice } from './ui';
+import { Button, Dialog, Notice, Switch } from './ui';
 import type { useWorkspace } from './workspace';
 
 export function Settings({ workspace, close, restore, dataOnly }: {
@@ -11,7 +11,14 @@ export function Settings({ workspace, close, restore, dataOnly }: {
     status, statusError, busy, commandError, clearCommandError, notice, clearNotice, data,
     refresh, chooseW2, start, enableMultiSelect, enableRules, openWhistle, openDataFolder,
     importBackup, exportBackup,
+    systemProxy, systemProxyError, setSystemProxy, releaseSystemProxy,
   } = workspace;
+  const [confirmRelease, setConfirmRelease] = useState(false);
+  const proxyCopy = !systemProxy ? '正在读取 macOS 代理设置…' : !systemProxy.supported ? '系统代理开关仅支持 macOS。'
+    : systemProxy.state === 'on' ? `已接管 HTTP/HTTPS → ${systemProxy.address}`
+    : systemProxy.state === 'changed' ? '配置已变更或操作未完成，可尝试关闭开关恢复。'
+    : systemProxy.state === 'external' ? '当前使用外部配置；开启后会保存原配置。'
+    : systemProxy.state === 'error' ? '暂时无法确认系统代理状态。' : '未由本应用接管。';
 
   const path = status?.w2Path || data?.settings.w2Path;
   return <Dialog title={dataOnly ? '数据与备份' : '连接设置'} close={close} className="settings-dialog">
@@ -35,7 +42,26 @@ export function Settings({ workspace, close, restore, dataOnly }: {
           : '连接后可查看'}>
           <Button onClick={openWhistle} disabled={!status?.address || !!busy}><ExternalLink size={14} aria-hidden="true" /> 打开 Whistle</Button>
         </Setting>
-        <p className="muted settings-note">请在系统或浏览器配置 Whistle 代理。拦截 HTTPS 时，还需在 Whistle 安装并信任根证书、开启 HTTPS 解密。</p>
+        <Setting name="系统代理" value={<>
+          <span role="status">{proxyCopy}</span>
+          {!!systemProxy?.services.length && <span>{systemProxy.services.join('、')}</span>}
+        </>}>
+          <Switch label="系统代理" checked={!!systemProxy?.managed}
+            disabled={!!busy || !systemProxy?.supported || (!systemProxy.managed && (!status?.running || systemProxy.state === 'error' || !!systemProxyError))}
+            change={setSystemProxy} />
+        </Setting>
+        {systemProxyError && <Notice error>{systemProxyError}</Notice>}
+        {systemProxy?.managed && status && !status.running && <Notice error>Whistle 未运行，系统代理可能影响联网。请关闭系统代理开关，恢复原配置。</Notice>}
+        {systemProxy?.managed && status?.running && systemProxy.address && status.address !== systemProxy.address && <Notice error>Whistle 地址已变化。请先关闭系统代理恢复原配置，再重新开启以使用新地址。</Notice>}
+        {systemProxy?.message && <p className="muted settings-note">{systemProxy.message}</p>}
+        {systemProxy?.managed && systemProxy.state === 'changed' && <div className="proxy-recovery">
+          {!confirmRelease ? <Button onClick={() => setConfirmRelease(true)} disabled={!!busy}>保留当前设置</Button> : <>
+            <p>保留当前系统代理并结束接管？这不会恢复开启前的配置；原配置备份仍会保留。</p>
+            <div><Button onClick={() => setConfirmRelease(false)} disabled={!!busy}>取消</Button>
+              <Button onClick={() => { setConfirmRelease(false); releaseSystemProxy(); }} disabled={!!busy}>确认保留</Button></div>
+          </>}
+        </div>}
+        <p className="muted settings-note">开启前保存原配置，关闭时恢复。设置时 macOS 可能要求授权。关闭应用后保持当前代理；浏览器请使用系统代理，避免扩展覆盖。HTTPS 仍需安装并信任 Whistle 根证书、开启 HTTPS 解密。</p>
         <Setting name="多选规则"
           value={status?.multiSelect === undefined ? '连接后可查看' : status.multiSelect ? '已开启' : '应用前需开启，以保留已有规则的选中状态。'}>
           {status?.running && status.multiSelect === false && <Button onClick={enableMultiSelect} disabled={!!busy}>开启多选规则</Button>}

@@ -598,6 +598,8 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 .setting__description > span { font-weight: 650; }
 .setting__value { display: grid; gap: var(--space-2xs); color: var(--color-muted); font-size: var(--text-sm); }
 .setting__actions { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: var(--space-xs); }
+.proxy-recovery { display: grid; gap: var(--space-sm); font-size: var(--text-sm); }
+.proxy-recovery > div { display: flex; gap: var(--space-xs); }
 .setting-path { overflow-wrap: anywhere; }
 .settings-note { font-size: var(--text-sm); }
 .settings-busy { margin-right: auto; display: flex; align-items: center; gap: var(--space-xs); color: var(--color-muted); }

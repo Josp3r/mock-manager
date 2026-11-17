@@ -409,6 +409,9 @@ export function App() {
         {project && <span className="statusbar__split">{enabledCount} / {project.endpoints.length} 接口启用</span>}
       </div>
       <div className="statusbar__area">
+        {workspace.systemProxy?.managed && <Button kind="quiet" onClick={() => setOverlay('settings')} disabled={working}>
+          {workspace.systemProxy.state === 'on' && status?.running ? '系统代理已接管' : '系统代理待处理'}
+        </Button>}
         {data?.lastApplied && <span>上次应用 {timeLabel(data.lastApplied.at)}</span>}
         {status?.managedSelected && <Button kind="quiet" onClick={workspace.disable} disabled={working} title="只停用本应用的专属规则">
           <Power size={14} aria-hidden="true" /> {busy === '正在停用' ? '正在停用…' : '停用 Mock'}

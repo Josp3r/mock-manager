@@ -6,6 +6,8 @@ import type { AppData } from '../shared/types';
 import { DataStore, MAX_DATA_BYTES } from './store';
 import { LocalWhistle } from './whistle';
 import { SyncController } from './sync';
+import { SystemProxyController } from './system-proxy';
+import { NativeSystemProxy } from './native-system-proxy';
 
 app.setName('Whistle Mock Manager');
 const dataOverride = process.env.MOCK_MANAGER_DATA_DIR;
@@ -15,6 +17,10 @@ if (!gotLock) app.quit();
 let window: BrowserWindow | null = null;
 const dataRoot = app.getPath('userData');
 const controller = new SyncController(new DataStore(dataRoot), new LocalWhistle());
+const proxyHelperOverride = !app.isPackaged ? process.env.MOCK_MANAGER_PROXY_HELPER : undefined;
+const proxyHelper = proxyHelperOverride && isAbsolute(proxyHelperOverride) ? proxyHelperOverride
+  : app.isPackaged ? join(process.resourcesPath, 'system-proxy') : join(__dirname, '../dist-native/system-proxy');
+const systemProxy = new SystemProxyController(dataRoot, new NativeSystemProxy(proxyHelper));
 const devUrl = !app.isPackaged ? process.env.MOCK_MANAGER_DEV_URL : undefined;
 const rendererPath = join(__dirname, '../dist/index.html');
 const trustedUrl = devUrl ? new URL(devUrl).href : pathToFileURL(rendererPath).href;
@@ -43,6 +49,16 @@ function setupIpc() {
   handle('startWhistle', () => controller.startWhistle());
   handle('enableMultiSelect', () => controller.enableMultiSelect());
   handle('enableRules', () => controller.enableRules());
+  handle('systemProxyStatus', () => systemProxy.status());
+  handle('setSystemProxy', async (enabled: unknown) => {
+    if (typeof enabled !== 'boolean') throw new Error('系统代理参数无效。');
+    if (!enabled) return systemProxy.disable();
+    const status = await controller.status();
+    if (!status.running || !status.address || !status.port) throw new Error('请先启动并连接 Whistle，再开启系统代理。');
+    const host = new URL(`http://${status.address}/`).hostname.replace(/^\[|\]$/g, '');
+    return systemProxy.enable({ host, port: status.port });
+  });
+  handle('releaseSystemProxy', () => systemProxy.release());
   handle('chooseW2', async () => {
     const {canceled, filePaths} = await dialog.showOpenDialog(window!, {title:'选择 w2 可执行文件', properties:['openFile','showHiddenFiles']});
     if (canceled || !filePaths[0]) return null;

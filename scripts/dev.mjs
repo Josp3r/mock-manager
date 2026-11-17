@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'vite';
 import electron from 'electron';
+await import('./build-native.mjs');
 await import('./build-electron.mjs');
 const server = await createServer();
 await server.listen();

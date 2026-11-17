@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AppData, ConnectionStatus, DesktopBridge, Project } from '../shared/types';
+import type { AppData, ConnectionStatus, DesktopBridge, Project, SystemProxyStatus } from '../shared/types';
 import { maxResponseLength } from './model';
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'error';
@@ -15,6 +15,8 @@ export function useWorkspace() {
   const [loadError, setLoadError] = useState('');
   const [status, setStatus] = useState<ConnectionStatus>();
   const [statusError, setStatusError] = useState('');
+  const [systemProxy, setSystemProxyStatus] = useState<SystemProxyStatus>();
+  const [systemProxyError, setSystemProxyError] = useState('');
   const [saveState, setSaveState] = useState<SaveState>('clean');
   const [saveError, setSaveError] = useState('');
   const [busy, setBusy] = useState('');
@@ -63,12 +65,14 @@ export function useWorkspace() {
   const refresh = useCallback(async () => {
     if (!bridge || command.current) return;
     const request = ++statusRequest.current;
-    try {
-      const next = await bridge.status();
-      if (request === statusRequest.current) receiveStatus(next);
-    } catch (error) {
-      if (request === statusRequest.current) setStatusError(messageFrom(error));
-    }
+    const [connection, proxy] = await Promise.allSettled([bridge.status(), bridge.systemProxyStatus()]);
+    if (request !== statusRequest.current) return;
+    if (connection.status === 'fulfilled') receiveStatus(connection.value);
+    else setStatusError(messageFrom(connection.reason));
+    if (proxy.status === 'fulfilled') {
+      setSystemProxyStatus(proxy.value);
+      setSystemProxyError('');
+    } else setSystemProxyError(messageFrom(proxy.reason));
   }, [bridge, receiveStatus]);
 
   useEffect(() => {
@@ -181,7 +185,7 @@ export function useWorkspace() {
   }
 
   return {
-    data, loadError, load, status, statusError, refresh, saveState, saveError, flush,
+    data, loadError, load, status, statusError, systemProxy, systemProxyError, refresh, saveState, saveError, flush,
     busy, commandError, clearCommandError: () => setCommandError(''),
     notice, clearNotice: () => setNotice(''), edit, editProject,
     apply: () => void run('正在应用', api => api.apply(), value => {
@@ -196,6 +200,20 @@ export function useWorkspace() {
     start: () => void run('正在启动', api => api.startWhistle(), receiveStatus, true),
     enableMultiSelect: () => void run('正在开启多选', api => api.enableMultiSelect(), receiveStatus),
     enableRules: () => void run('正在启用规则', api => api.enableRules(), receiveStatus),
+    setSystemProxy: (enabled: boolean) => void run(enabled ? '正在设置系统代理，请完成系统授权' : '正在恢复原代理，请完成系统授权',
+      api => api.setSystemProxy(enabled), value => {
+        setSystemProxyStatus(value);
+        setSystemProxyError('');
+        if (value.state === 'error' || !value.supported || (enabled ? value.state !== 'on' : value.managed)) {
+          setCommandError(value.message || '系统代理设置未完成，请检查状态后重试。');
+        } else setNotice(enabled ? '已将系统 HTTP/HTTPS 代理指向 Whistle。' : '已恢复开启前的系统代理设置。');
+      }),
+    releaseSystemProxy: () => void run('正在保留当前设置', api => api.releaseSystemProxy(), value => {
+      setSystemProxyStatus(value);
+      setSystemProxyError('');
+      if (value.managed || value.state === 'error') setCommandError(value.message || '系统代理状态已变化，请刷新后重试。');
+      else setNotice('已保留当前系统设置并结束接管。原配置备份仍保存在应用数据目录。');
+    }),
     chooseW2: () => void run('正在选择 w2', api => api.chooseW2(), path => {
       if (path && draft.current) {
         accept({ ...draft.current, settings: { ...draft.current.settings, w2Path: path } });

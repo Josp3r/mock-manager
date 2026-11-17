@@ -16,5 +16,8 @@ const bridge: DesktopBridge = {
   importResponse: () => ipcRenderer.invoke('manager:importResponse'),
   openWhistle: () => ipcRenderer.invoke('manager:openWhistle'),
   openDataFolder: () => ipcRenderer.invoke('manager:openDataFolder'),
+  systemProxyStatus: () => ipcRenderer.invoke('manager:systemProxyStatus'),
+  setSystemProxy: (enabled: boolean) => ipcRenderer.invoke('manager:setSystemProxy', enabled),
+  releaseSystemProxy: () => ipcRenderer.invoke('manager:releaseSystemProxy'),
 };
 contextBridge.exposeInMainWorld('mockManager', bridge);

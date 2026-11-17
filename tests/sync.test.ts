@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,21 +10,47 @@ import type { AppData } from '../src/shared/types';
 function fake() {
   const files = new Map<string, { value: string; selected: boolean }>([['existing', { value: 'example.test host://127.0.0.1', selected: true }]]);
   let multiSelect = true, disabled = false, fail = false;
+  const behavior = {
+    offline: false, readError: false, select: true, unselect: true,
+    afterNextAdd: undefined as ((name: string) => void) | undefined,
+  };
+  const calls = { add: 0, select: 0 };
+  function online() { if (behavior.offline) throw new Error('Whistle offline'); }
   const api: WhistleApi = {
-    network: { getStatus: async () => ({ version: '2.10.12', port: 8899 }) },
+    network: { getStatus: async () => { online(); return { version: '2.10.12', port: 8899 }; } },
     isEnabledHTTPS: async () => true,
     rules: {
-      getStatus: async () => ({ multiSelect, disabled, list: [...files].map(([name, v]) => ({ name, selected: v.selected })) }),
-      get: async name => files.get(name) || null,
-      add: async (name, value, selected) => { if (fail) throw new Error('write failed'); files.set(name, { value, selected: selected || files.get(name)?.selected || false }); },
-      select: async name => { const v = files.get(name); if (!v) return false; v.selected = true; return true; },
-      unselect: async name => { const v = files.get(name); if (v) v.selected = false; return !!v; },
+      getStatus: async () => {
+        online();
+        return { multiSelect, disabled, list: [...files].map(([name, v]) => ({ name, selected: v.selected })) };
+      },
+      get: async name => {
+        online();
+        if (behavior.readError) { behavior.readError = false; throw new Error('rule readback failed'); }
+        const entry = files.get(name);
+        return entry ? { ...entry } : null;
+      },
+      add: async (name, value, selected) => {
+        calls.add++;
+        if (fail) throw new Error('write failed');
+        files.set(name, { value, selected: Boolean((behavior.select && selected) || files.get(name)?.selected) });
+        const after = behavior.afterNextAdd;
+        behavior.afterNextAdd = undefined;
+        after?.(name);
+      },
+      select: async name => {
+        calls.select++;
+        const v = files.get(name);
+        if (!v || !behavior.select) return false;
+        v.selected = true; return true;
+      },
+      unselect: async name => { const v = files.get(name); if (v && behavior.unselect) v.selected = false; return !!v; },
       setMultiSelect: async value => { multiSelect = value; },
       turnOn: async () => { disabled = false; }
     }
   };
   const access: WhistleAccess = { find: async () => '/test/w2', resolve: async () => ({ path: '/test/w2', api }), start: async () => {} };
-  return { files, access, setMulti: (v: boolean) => { multiSelect = v; }, setDisabled: (v: boolean) => { disabled = v; }, setFail: (v: boolean) => { fail = v; } };
+  return { files, access, behavior, calls, setMulti: (v: boolean) => { multiSelect = v; }, setDisabled: (v: boolean) => { disabled = v; }, setFail: (v: boolean) => { fail = v; } };
 }
 describe('managed Whistle synchronization', () => {
   let root: string, store: DataStore, controller: SyncController, engine: ReturnType<typeof fake>;
@@ -34,6 +60,7 @@ describe('managed Whistle synchronization', () => {
   it('applies and disables only its own file, leaving existing selected rules intact', async () => {
     await active(); const result = await controller.apply();
     expect(result.status.syncState).toBe('synced');
+    expect(engine.calls.select).toBe(0);
     expect(engine.files.get('existing')?.selected).toBe(true);
     expect(result.data.lastApplied?.rules).toContain('file://');
     await controller.disable();
@@ -51,6 +78,7 @@ describe('managed Whistle synchronization', () => {
     engine.files.get(result.data.lastApplied!.ruleName)!.value = '# manually changed';
     expect((await controller.status()).syncState).toBe('conflict');
     await expect(controller.apply()).rejects.toThrow(/外部|冲突/);
+    await expect(controller.restore()).rejects.toThrow(/外部|冲突/);
     expect(engine.files.get(result.data.lastApplied!.ruleName)?.value).toBe('# manually changed');
   });
   it('keeps the successful snapshot after a failed apply', async () => {
@@ -72,5 +100,133 @@ describe('managed Whistle synchronization', () => {
     const draft = await store.load(); draft.projects[0].endpoints[0].enabled = false;
     await controller.saveDraft(draft); const restored = await controller.restore();
     expect(restored.data.projects).toEqual(applied.data.projects); expect(restored.status.syncState).toBe('synced');
+  });
+
+  it('rejects an oversized applied snapshot before writing a Whistle rule', async () => {
+    const data = await active();
+    const scenarios = data.projects[0].endpoints[0].scenarios;
+    scenarios.push(...Array.from({ length: 10 }, (_, i) => ({
+      ...scenarios[0], id: 'large-' + i, body: JSON.stringify('a'.repeat(1_800_000)),
+    })));
+    await controller.saveDraft(data);
+    await expect(controller.apply()).rejects.toThrow(/32 MiB/);
+    expect(engine.calls.add).toBe(0);
+    expect((await store.load()).lastApplied).toBeUndefined();
+  });
+
+  it('rolls back a live replacement when its readback fails', async () => {
+    await active();
+    const result = await controller.apply();
+    const old = result.data.lastApplied!;
+    const draft = await store.load();
+    draft.projects[0].endpoints[0].scenarios[0].body = '{"changed":true}';
+    await controller.saveDraft(draft);
+    engine.behavior.afterNextAdd = () => { engine.behavior.readError = true; };
+    await expect(controller.apply()).rejects.toThrow(/readback/);
+    expect(engine.files.get(old.ruleName)).toEqual({ value: old.rules, selected: true });
+    expect((await store.load()).lastApplied).toEqual(old);
+    expect((await controller.status()).syncState).toBe('pending');
+  });
+
+  it('rolls back a live replacement when the snapshot cannot be saved', async () => {
+    await active();
+    const first = await controller.apply();
+    const draft = await store.load();
+    draft.projects[0].endpoints[0].scenarios[0].body = '{"changed":true}';
+    await controller.saveDraft(draft);
+    vi.spyOn(store, 'save').mockRejectedValueOnce(new Error('local disk failed'));
+    await expect(controller.apply()).rejects.toThrow(/local disk failed/);
+    const old = first.data.lastApplied!;
+    expect(engine.files.get(old.ruleName)).toEqual({ value: old.rules, selected: true });
+    expect((await store.load()).lastApplied).toEqual(old);
+  });
+
+  it('keeps a verified rule when a save error arrives after the snapshot was published', async () => {
+    await active();
+    const realSave = store.save.bind(store);
+    vi.spyOn(store, 'save').mockImplementationOnce(async (next) => {
+      await realSave(next);
+      throw new Error('disk acknowledgement failed');
+    });
+    const applied = await controller.apply();
+    expect(applied.status.syncState).toBe('synced');
+    expect((await store.load()).lastApplied).toEqual(applied.data.lastApplied);
+    expect(engine.files.get(applied.data.lastApplied!.ruleName)?.selected).toBe(true);
+  });
+
+  it('recovers a partial first apply after restarting without a last applied snapshot', async () => {
+    const data = await active();
+    const name = controller.ruleName(data);
+    engine.behavior.afterNextAdd = () => { engine.behavior.offline = true; };
+    await expect(controller.apply()).rejects.toThrow();
+    expect(engine.files.get(name)?.selected).toBe(true);
+    engine.behavior.offline = false;
+    const reopened = new SyncController(new DataStore(root), engine.access);
+    expect((await reopened.status()).canRecover).toBe(true);
+    expect((await reopened.load()).lastApplied).toBeUndefined();
+    const recovered = await reopened.restore();
+    expect(recovered.status.syncState).toBe('disabled');
+    expect(engine.files.get(name)?.selected).toBe(false);
+    expect((await reopened.apply()).status.syncState).toBe('synced');
+    expect(engine.files.get('existing')?.selected).toBe(true);
+  });
+
+  it('preserves an external rule edit after a failed write and through restart', async () => {
+    const data = await active();
+    const name = controller.ruleName(data);
+    engine.behavior.afterNextAdd = () => {
+      engine.files.set(name, { value: '# external edit during apply', selected: true });
+      throw new Error('write interrupted');
+    };
+    await expect(controller.apply()).rejects.toThrow();
+    const reopened = new SyncController(new DataStore(root), engine.access);
+    const status = await reopened.status();
+    expect(status.syncState).toBe('conflict');
+    expect(status.canRecover).toBe(false);
+    await expect(reopened.restore()).rejects.toThrow(/外部|冲突/);
+    expect(engine.files.get(name)).toEqual({ value: '# external edit during apply', selected: true });
+  });
+
+  it('rejects recovery if Whistle did not select the managed file', async () => {
+    await active();
+    const applied = await controller.apply();
+    await controller.disable();
+    engine.behavior.select = false;
+    await expect(controller.restore()).rejects.toThrow(/恢复|确认/);
+    expect(engine.files.get(applied.data.lastApplied!.ruleName)?.selected).toBe(false);
+    expect((await store.load()).lastApplied).toEqual(applied.data.lastApplied);
+  });
+
+  it.each(['global rules', 'multi-select'] as const)('verifies %s after recovery writes', async (feature) => {
+    await active();
+    const applied = await controller.apply();
+    await controller.disable();
+    engine.behavior.afterNextAdd = () => {
+      if (feature === 'global rules') engine.setDisabled(true);
+      else engine.setMulti(false);
+    };
+    await expect(controller.restore()).rejects.toThrow(/确认/);
+    expect(engine.files.get(applied.data.lastApplied!.ruleName)?.selected).toBe(false);
+    expect((await store.load()).lastApplied).toEqual(applied.data.lastApplied);
+    expect(engine.files.get('existing')?.selected).toBe(true);
+  });
+
+  it('verifies that disable actually unselected the managed rule', async () => {
+    await active();
+    const result = await controller.apply();
+    engine.behavior.unselect = false;
+    await expect(controller.disable()).rejects.toThrow(/停止|确认/);
+    expect(engine.files.get(result.data.lastApplied!.ruleName)?.selected).toBe(true);
+  });
+
+  it('ignores executable-path and installation changes from draft saves', async () => {
+    const initial = await store.load();
+    const trusted = await controller.updateW2Path('/selected/w2');
+    const stale = { ...initial, installationId: 'different-installation', settings: { w2Path: '/renderer/w2' } };
+    stale.projects[0].name = 'Updated project';
+    const saved = await controller.saveDraft(stale);
+    expect(saved.installationId).toBe(initial.installationId);
+    expect(saved.settings).toEqual(trusted.settings);
+    expect(saved.projects[0].name).toBe('Updated project');
   });
 });

@@ -11,7 +11,17 @@ export interface ProjectBackup {
   projects: Project[];
 }
 
-const MAX_DATA_BYTES = 32 * 1024 * 1024;
+export interface PendingSync {
+  ruleName: string;
+  w2Path: string;
+  port: number;
+  beforeValue: string | null;
+  beforeSelected: boolean;
+  nextDigest: string;
+  nextAt: string;
+}
+
+export const MAX_DATA_BYTES = 32 * 1024 * 1024;
 
 function isError(error: unknown, ...codes: string[]): boolean {
   return error instanceof Error && codes.includes((error as NodeJS.ErrnoException).code ?? '');
@@ -136,6 +146,7 @@ export class DataStore {
   private readonly primary: string;
   private readonly recovery: string;
   private readonly fixtureRoot: string;
+  private readonly pending: string;
   private tail = Promise.resolve();
 
   constructor(root: string) {
@@ -143,6 +154,7 @@ export class DataStore {
     this.primary = join(this.root, 'data.json');
     this.recovery = join(this.root, 'data.previous.json');
     this.fixtureRoot = join(this.root, 'fixtures');
+    this.pending = join(this.root, 'sync.pending.json');
   }
 
   private enqueue<T>(run: () => Promise<T>): Promise<T> {
@@ -183,6 +195,46 @@ export class DataStore {
 
   save(data: AppData): Promise<AppData> {
     return this.enqueue(async () => this.persist(data, await this.loadData()));
+  }
+
+  beginSync(intent: PendingSync, next: AppData): Promise<void> {
+    return this.enqueue(async () => {
+      // Use the same validation and serializer as save() before touching Whistle.
+      metadataBytes(validateData(next));
+      const content = JSON.stringify({ schemaVersion: 1, ...intent });
+      if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error('同步记录超过 32 MiB');
+      await putFile(this.pending, content, false);
+    });
+  }
+
+  pendingSync(): Promise<PendingSync | null> {
+    return this.enqueue(async () => {
+      try {
+        const entry = JSON.parse((await getFile(this.pending, MAX_DATA_BYTES)).toString('utf8'));
+        if (!entry || entry.schemaVersion !== 1 || typeof entry.ruleName !== 'string' ||
+          !/^MockManager-[a-z\d][a-z\d_-]{0,79}$/i.test(entry.ruleName) ||
+          typeof entry.w2Path !== 'string' || entry.w2Path.length > 4096 ||
+          !Number.isInteger(entry.port) || entry.port < 1 || entry.port > 65535 ||
+          (entry.beforeValue !== null && (typeof entry.beforeValue !== 'string' || entry.beforeValue.length > 8_000_000)) ||
+          typeof entry.beforeSelected !== 'boolean' ||
+          (entry.beforeValue === null && entry.beforeSelected) ||
+          typeof entry.nextDigest !== 'string' || !/^[0-9a-f]{64}$/.test(entry.nextDigest) ||
+          typeof entry.nextAt !== 'string' || !Number.isFinite(Date.parse(entry.nextAt))) {
+          throw new InvalidFile('同步记录格式无效');
+        }
+        return entry as PendingSync;
+      } catch (error) {
+        if (isError(error, 'ENOENT')) return null;
+        throw new Error('无法读取同步恢复记录。请检查本地数据文件。', { cause: error });
+      }
+    });
+  }
+
+  clearSync(): Promise<void> {
+    return this.enqueue(async () => {
+      await rm(this.pending, { force: true });
+      await syncDirectory(this.root);
+    });
   }
 
   exportBackup(): Promise<ProjectBackup> {

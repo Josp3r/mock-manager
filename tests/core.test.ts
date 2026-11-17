@@ -13,7 +13,7 @@ const endpoint: Endpoint = {
 
 function dataWith(overrides: Partial<Endpoint> = {}): AppData {
   return {
-    schemaVersion: 1, installationId: 'local', settings: { w2Path: '' },
+    schemaVersion: 1, installationId: 'local', settings: { engineMode: 'builtin' },
     projects: [{ id: 'project', name: 'Catalog', description: '', endpoints: [{ ...structuredClone(endpoint), ...overrides }], presets: [] }],
   };
 }
@@ -167,5 +167,18 @@ describe('Configuration validation', () => {
     expect(endpoints.length).toBeGreaterThan(0);
     expect(endpoints.every((item) => !item.enabled && new URL(item.url).hostname === 'api.example.test')).toBe(true);
     expect(data.lastApplied).toBeUndefined();
+  });
+});
+
+describe('persisted engine mode', () => {
+  it('creates new profiles with the bundled engine', () => {
+    expect(createInitialData().settings).toEqual({ engineMode: 'builtin' });
+  });
+
+  it('drops the previous executable path from a legacy profile', () => {
+    const legacy = { ...dataWith(), settings: { w2Path: '/custom/w2' } };
+    const migrated = validateData(legacy);
+    expect(migrated.settings).toEqual({ engineMode: 'builtin' });
+    expect(migrated.projects).toEqual(legacy.projects);
   });
 });

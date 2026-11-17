@@ -76,7 +76,6 @@ describe('DataStore', () => {
     const project = original.projects[0];
     const endpoint = project.endpoints[0];
     endpoint.enabled = true;
-    original.settings.w2Path = '/example/w2';
     project.presets = [{
       id: 'sample-preset', name: 'Sample preset',
       selections: { [endpoint.id]: { enabled: true, scenarioId: endpoint.activeScenarioId } },

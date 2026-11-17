@@ -147,12 +147,12 @@ function snapshot(input: unknown): AppliedSnapshot {
 export function validateData(input: unknown): AppData {
   const entry = record(input, '配置');
   if (entry.schemaVersion !== 1) invalid('配置版本');
-  const settings = record(entry.settings, '本机设置');
+  record(entry.settings, '本机设置');
   const validated: AppData = {
     schemaVersion: 1,
     installationId: id(entry.installationId, '安装 ID'),
     projects: validateProjects(entry.projects),
-    settings: { w2Path: string(settings.w2Path, 'Whistle 路径', 4096) },
+    settings: { engineMode: 'builtin' },
   };
   if (entry.lastApplied !== undefined) validated.lastApplied = snapshot(entry.lastApplied);
   return validated;
@@ -173,7 +173,7 @@ export function createInitialData(): AppData {
   return {
     schemaVersion: 1,
     installationId: randomUUID(),
-    settings: { w2Path: '' },
+    settings: { engineMode: 'builtin' },
     projects: [{
       id: randomUUID(),
       name: '示例项目',

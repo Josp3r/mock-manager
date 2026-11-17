@@ -6,9 +6,9 @@ export interface PresetSelection { enabled: boolean; scenarioId: string }
 export interface Preset { id: string; name: string; selections: Record<string, PresetSelection> }
 export interface Project { id: string; name: string; description: string; endpoints: Endpoint[]; presets: Preset[] }
 export interface AppliedSnapshot { hash: string; at: string; ruleName: string; rules: string; projects: Project[] }
-export interface AppData { schemaVersion: 1; installationId: string; projects: Project[]; settings: { w2Path: string }; lastApplied?: AppliedSnapshot }
+export interface AppData { schemaVersion: 1; installationId: string; projects: Project[]; settings: { engineMode: 'builtin' }; lastApplied?: AppliedSnapshot }
 export interface ConnectionStatus {
-  installed: boolean; running: boolean; w2Path: string; version?: string; port?: number;
+  installed: boolean; running: boolean; engineMode: 'builtin'; version?: string; port?: number;
   host?: string; address?: string;
   httpsEnabled?: boolean; multiSelect?: boolean; rulesDisabled?: boolean;
   managedSelected?: boolean; ruleName?: string; error?: string; lastAppliedAt?: string;
@@ -34,7 +34,9 @@ export interface DesktopBridge {
   startWhistle(): Promise<ConnectionStatus>;
   enableMultiSelect(): Promise<ConnectionStatus>;
   enableRules(): Promise<ConnectionStatus>;
-  chooseW2(): Promise<string | null>;
+  testConnection(): Promise<{ ok: boolean; message: string }>;
+  exportCertificate(): Promise<boolean>;
+  onPrepareQuit(callback: () => Promise<void>): () => void;
   importBackup(): Promise<AppData | null>;
   exportBackup(): Promise<boolean>;
   importResponse(): Promise<string | null>;

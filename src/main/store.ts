@@ -202,7 +202,7 @@ export class DataStore {
     return this.enqueue(async () => {
       // Use the same validation and serializer as save() before touching Whistle.
       metadataBytes(validateData(next));
-      const content = JSON.stringify({ schemaVersion: 1, ...intent });
+      const content = JSON.stringify({ schemaVersion: 2, ...intent });
       if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error('同步记录超过 32 MiB');
       await putFile(this.pending, content, false);
     });
@@ -212,7 +212,7 @@ export class DataStore {
     return this.enqueue(async () => {
       try {
         const entry = JSON.parse((await getFile(this.pending, MAX_DATA_BYTES)).toString('utf8'));
-        if (!entry || entry.schemaVersion !== 1 || typeof entry.ruleName !== 'string' ||
+        if (!entry || (entry.schemaVersion !== 1 && entry.schemaVersion !== 2) || typeof entry.ruleName !== 'string' ||
           !/^MockManager-[a-z\d][a-z\d_-]{0,79}$/i.test(entry.ruleName) ||
           typeof entry.w2Path !== 'string' || entry.w2Path.length > 4096 ||
           (entry.host !== undefined && (typeof entry.host !== 'string' || !entry.host || entry.host.length > 255)) ||
@@ -223,6 +223,12 @@ export class DataStore {
           typeof entry.nextDigest !== 'string' || !/^[0-9a-f]{64}$/.test(entry.nextDigest) ||
           typeof entry.nextAt !== 'string' || !Number.isFinite(Date.parse(entry.nextAt))) {
           throw new InvalidFile('同步记录格式无效');
+        }
+        if (entry.schemaVersion === 1) {
+          // Version 1 belongs to external Whistle and cannot be replayed on the embedded engine.
+          await rename(this.pending, this.pending + '.external-' + randomUUID());
+          await syncDirectory(this.root);
+          return null;
         }
         return entry as PendingSync;
       } catch (error) {

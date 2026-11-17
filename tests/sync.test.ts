@@ -280,12 +280,62 @@ describe('managed Whistle synchronization', () => {
 
   it('ignores executable-path and installation changes from draft saves', async () => {
     const initial = await store.load();
-    const trusted = await controller.updateW2Path('/selected/w2');
-    const stale = { ...initial, installationId: 'different-installation', settings: { w2Path: '/renderer/w2' } };
+    const stale = { ...initial, installationId: 'different-installation',
+      settings: { ...initial.settings, w2Path: '/renderer/w2' } };
     stale.projects[0].name = 'Updated project';
     const saved = await controller.saveDraft(stale);
     expect(saved.installationId).toBe(initial.installationId);
-    expect(saved.settings).toEqual(trusted.settings);
+    expect(saved.settings).toEqual({ engineMode: 'builtin' });
     expect(saved.projects[0].name).toBe('Updated project');
+  });
+});
+
+describe('built-in Whistle migration', () => {
+  let root: string, store: DataStore, controller: SyncController, engine: ReturnType<typeof fake>;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'mock-sync-engine-'));
+    store = new DataStore(root);
+    engine = fake();
+    const requireBuiltin = (selector: string) => {
+      if (selector !== '@builtin') throw new Error('Unexpected engine selector: ' + selector);
+    };
+    controller = new SyncController(store, {
+      find: async selector => { requireBuiltin(selector); return '@builtin'; },
+      resolve: async selector => { requireBuiltin(selector); return { ...await engine.access.resolve(selector), path: '@builtin' }; },
+      endpoint: async selector => { requireBuiltin(selector); return { port: 8899 }; },
+      start: async selector => { requireBuiltin(selector); },
+    });
+  });
+  afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+
+  it('uses the built-in engine for every connection operation on an upgraded profile', async () => {
+    const data = await store.load();
+    await writeFile(join(root, 'data.json'), JSON.stringify({ ...data, settings: { w2Path: '/old/w2' } }));
+    expect(await controller.startWhistle()).toMatchObject({ engineMode: 'builtin', running: true, port: 8899 });
+    await controller.enableRules();
+    await controller.enableMultiSelect();
+    expect((await controller.apply()).status.syncState).toBe('synced');
+  });
+
+  it('archives an external journal without applying its rule or the previously applied snapshot', async () => {
+    const { data } = await controller.apply();
+    const name = controller.ruleName(data);
+    engine.files.delete(name);
+    await writeFile(join(root, 'data.json'), JSON.stringify({ ...data, settings: { w2Path: '/old/w2' } }));
+    const journal = JSON.stringify({
+      schemaVersion: 1,
+      ruleName: name, w2Path: '/old/w2', host: '127.0.0.1', port: 8899,
+      beforeValue: null, beforeSelected: false, nextDigest: 'a'.repeat(64), nextAt: '2026-01-01T00:00:00.000Z',
+    });
+    await writeFile(join(root, 'sync.pending.json'), journal);
+    expect(await controller.status()).toMatchObject({ engineMode: 'builtin', syncState: 'disabled' });
+    expect(await store.pendingSync()).toBeNull();
+    const archive = (await readdir(root)).find(file => file.startsWith('sync.pending.json.external-'));
+    expect(archive).toBeDefined();
+    expect(await readFile(join(root, archive!), 'utf8')).toBe(journal);
+    expect(engine.files.has(name)).toBe(false);
+    expect((await store.load()).lastApplied).toEqual(data.lastApplied);
+    expect((await controller.restore()).status.syncState).toBe('synced');
   });
 });

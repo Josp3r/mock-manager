@@ -13,6 +13,7 @@ type Managed = {
   disabled: boolean;
 };
 
+const BUILTIN_SELECTOR = '@builtin';
 const EXTERNAL_CONFLICT = '专属规则在 Whistle 中被外部修改。请在 Whistle 中处理冲突后重试。';
 const DIFFERENT_WHISTLE = '上次同步使用了其他 Whistle 路径或代理地址，请连接该实例后处理恢复。';
 
@@ -91,22 +92,15 @@ export class SyncController {
     });
   }
 
-  updateW2Path(w2Path: string): Promise<AppData> {
-    return this.serial(async () => {
-      const current = await this.store.load();
-      return this.store.save({ ...current, settings: { w2Path } });
-    });
-  }
-
   status(): Promise<ConnectionStatus> {
     return this.serial(() => this.statusNow());
   }
 
-  private async connect(data: AppData): Promise<ConnectedWhistle> {
-    const { path, api } = await this.access.resolve(data.settings.w2Path);
+  private async connect(): Promise<ConnectedWhistle> {
+    const { path, api } = await this.access.resolve(BUILTIN_SELECTOR);
     const meta = await api.network.getStatus();
     if (!compatibleVersion(meta.version)) throw new Error('Whistle 版本过低，请升级至 2.10.7 或更新版本。');
-    const endpoint = await this.access.endpoint?.(data.settings.w2Path);
+    const endpoint = await this.access.endpoint?.(BUILTIN_SELECTOR);
     const port = endpoint?.port ?? meta.port;
     if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('无法确认 Whistle 的实际代理端口。');
@@ -119,13 +113,13 @@ export class SyncController {
     const data = await this.store.load();
     const name = this.ruleName(data);
     const state: ConnectionStatus = {
-      installed: false, running: false, w2Path: data.settings.w2Path, syncState: 'offline',
+      installed: false, running: false, engineMode: 'builtin', syncState: 'offline',
       ruleName: name, lastAppliedAt: data.lastApplied?.at, canRecover: false,
     };
     try {
-      state.w2Path = await this.access.find(data.settings.w2Path);
+      await this.access.find(BUILTIN_SELECTOR);
       state.installed = true;
-      const connection = await this.connect(data);
+      const connection = await this.connect();
       state.running = true;
       state.version = connection.version;
       state.host = connection.host;
@@ -297,7 +291,7 @@ export class SyncController {
     return this.serial(async () => {
       const data = await this.store.load();
       validateForApply(data);
-      const connection = await this.connect(data);
+      const connection = await this.connect();
       const before = await this.recoverInterrupted(data, connection);
       assertActivationAllowed(before);
       if (!owned(data, this.ruleName(data), before.value)) throw new Error(EXTERNAL_CONFLICT);
@@ -311,7 +305,7 @@ export class SyncController {
     return this.serial(async () => {
       const data = await this.store.load();
       const name = this.ruleName(data);
-      const connection = await this.connect(data);
+      const connection = await this.connect();
       const intent = await this.store.pendingSync();
       const view = await readManaged(connection.api, name);
       if (view.selected) {
@@ -327,7 +321,7 @@ export class SyncController {
   restore(): Promise<ApplyResult> {
     return this.serial(async () => {
       const data = await this.store.load();
-      const connection = await this.connect(data);
+      const connection = await this.connect();
       const intent = await this.store.pendingSync();
       const before = await this.recoverInterrupted(data, connection);
       const name = this.ruleName(data);
@@ -347,16 +341,14 @@ export class SyncController {
 
   startWhistle(): Promise<ConnectionStatus> {
     return this.serial(async () => {
-      const data = await this.store.load();
-      await this.access.start(data.settings.w2Path);
+      await this.access.start(BUILTIN_SELECTOR);
       return this.statusNow();
     });
   }
 
   enableMultiSelect(): Promise<ConnectionStatus> {
     return this.serial(async () => {
-      const data = await this.store.load();
-      const { api } = await this.access.resolve(data.settings.w2Path);
+      const { api } = await this.access.resolve(BUILTIN_SELECTOR);
       await api.rules.setMultiSelect(true);
       return this.statusNow();
     });
@@ -364,8 +356,7 @@ export class SyncController {
 
   enableRules(): Promise<ConnectionStatus> {
     return this.serial(async () => {
-      const data = await this.store.load();
-      const { api } = await this.access.resolve(data.settings.w2Path);
+      const { api } = await this.access.resolve(BUILTIN_SELECTOR);
       await api.rules.turnOn();
       return this.statusNow();
     });

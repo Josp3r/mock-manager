@@ -1,6 +1,6 @@
 {
   "name": "whistle-mock-manager",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Personal desktop mock workspace for Whistle",
   "author": "Whistle Mock Manager",
@@ -16,12 +16,14 @@
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:desktop": "node scripts/desktop-test.mjs",
     "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs",
-    "test:system-proxy:desktop": "node --import tsx scripts/system-proxy-desktop-test.mjs"
+    "test:system-proxy:desktop": "node --import tsx scripts/system-proxy-desktop-test.mjs",
+    "test:engine": "node scripts/build-electron.mjs && node scripts/embedded-engine-test.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "lucide-react": "^0.468.0"
+    "whistle": "2.10.15"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -46,8 +48,7 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json",
-      "!node_modules/**/*"
+      "package.json"
     ],
     "asar": true,
     "electronDist": "node_modules/electron/dist",

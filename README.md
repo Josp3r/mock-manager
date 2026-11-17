@@ -4,7 +4,7 @@
 
 ## 打开应用
 
-解压 `Whistle-Mock-Manager-mac-arm64.zip`，双击其中的 `Whistle Mock Manager.app`。也可以将它拖入“应用程序”。这是供本机使用的未签名构建；如果 macOS 阻止首次打开，可在 Finder 中按住 Control 点击应用并选择“打开”，或在“系统设置 → 隐私与安全性”中允许打开。无需关闭系统安全设置。
+解压 `Whistle-Mock-Manager-mac-arm64.zip`，双击其中的 `Whistle Mock Manager.app`。也可以将它拖入“应用程序”。这是带本地 ad-hoc 签名的构建，未进行 Apple 开发者签名和公证；如果 macOS 阻止首次打开，可在 Finder 中按住 Control 点击应用并选择“打开”，或在“系统设置 → 隐私与安全性”中允许打开。无需关闭系统安全设置。
 
 需要 macOS Apple Silicon、已安装的 Whistle ≥ 2.10.7（命令 `w2`）。应用会检测 PATH、Homebrew、nvm 和常见安装目录；Finder 启动时找不到 w2，可在“连接设置”选择 w2 文件。
 
@@ -24,7 +24,7 @@
 - **项目预设**：保存一个项目内所有接口的启停和场景选择；载入预设后点击应用。
 - **停止 Mock**：应用内总开关只停用自己的规则文件，不会停用其他 Whistle 规则。删除或禁用单接口后需点击应用。
 - **关闭窗口**：已经应用的 Mock 继续由 Whistle 提供。退出桌面应用前如需恢复正式接口，请先停用 Mock。
-- **规则冲突**：不要直接手改应用的 `MockManager-…` 规则文件。检测到外部修改会停止覆盖；“恢复上次应用”会用上次成功快照修复专属规则并替换当前草稿。
+- **规则冲突**：不要直接手改应用的 `MockManager-…` 规则文件。检测到外部修改会停止覆盖；可在 Whistle 中撤销外部修改，或删除该专属规则文件后重新应用。“恢复上次应用”用于修复应用自身中断的操作和恢复上次成功快照。
 - **数据备份**：“连接设置 → 数据与备份”导出或导入 JSON。导入创建新项目、重新分配 ID，接口默认关闭；本机 w2 路径和应用状态不进入备份。
 - **数据目录**：默认 `~/Library/Application Support/Whistle Mock Manager/`，包含 `data.json`、恢复副本和独立 JSON fixtures。“打开数据目录”可定位。请勿手动修改已应用的响应文件。
 
@@ -50,6 +50,6 @@ npm run test:desktop
 npm run package:mac
 ```
 
-真实代理集成测试使用独立临时 Whistle 配置和本地假后端，不访问正式接口、不改用户当前实例；桌面测试也使用隔离数据目录。`MOCK_MANAGER_DATA_DIR=/absolute/path` 可指定独立的应用数据目录用于测试或便携运行。
+真实代理集成测试使用独立临时 Whistle 配置和本地假后端，不访问正式接口、不改用户当前实例；桌面测试也使用隔离数据目录。源码运行时，`MOCK_MANAGER_DATA_DIR=/absolute/path` 可指定独立的应用数据目录用于测试。打包应用忽略该测试变量。
 
 技术：Electron、React、TypeScript、Vite。所有文件和 Whistle 操作在主进程完成，页面通过有限的 preload API 通信。Whistle 官方接口见 https://wproxy.org/docs/extensions/api.html。

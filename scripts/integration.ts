@@ -40,7 +40,7 @@ try {
   const use = req(join(whistleRoot,'bin/use'));
   use.getConfig = (options:any,cb:any) => (typeof options==='function'?options:cb)(null,{options:{host:'127.0.0.1',port}});
   const api = req(apiPath) as WhistleApi;
-  const access:WhistleAccess={find:async()=>'/isolated/w2',resolve:async()=>({path:'/isolated/w2',api}),start:async()=>{}};
+  const access:WhistleAccess={find:async()=>'/isolated/w2',resolve:async()=>({path:'/isolated/w2',api}),start:async()=>{},endpoint:async()=>({port})};
   await api.rules.setMultiSelect(true);
   await api.rules.add('existing-integration-upstream',`api.example.test host://127.0.0.1:${upstreamPort}`,true);
   const controller=new SyncController(new DataStore(join(temp,'app data with spaces')),access);

@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:desktop": "node scripts/desktop-test.mjs",
-    "package:mac": "npm run build && electron-builder --mac dir --arm64"
+    "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -40,8 +40,9 @@
     "appId": "local.whistle.mockmanager",
     "productName": "Whistle Mock Manager",
     "directories": { "output": "release" },
-    "files": ["dist/**/*", "dist-electron/**/*", "package.json"],
+    "files": ["dist/**/*", "dist-electron/**/*", "package.json", "!node_modules/**/*"],
     "asar": true,
-    "mac": { "category": "public.app-category.developer-tools", "identity": null, "target": ["dir"] }
+    "electronDist": "node_modules/electron/dist",
+    "mac": { "category": "public.app-category.developer-tools", "identity": null, "icon": "assets/icon.png", "target": ["dir"] }
   }
 }

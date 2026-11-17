@@ -12,6 +12,7 @@ export interface ConnectionStatus {
   httpsEnabled?: boolean; multiSelect?: boolean; rulesDisabled?: boolean;
   managedSelected?: boolean; ruleName?: string; error?: string; lastAppliedAt?: string;
   syncState: 'pending' | 'synced' | 'disabled' | 'conflict' | 'offline';
+  canRecover?: boolean;
 }
 export interface ApplyResult { data: AppData; status: ConnectionStatus }
 export interface DesktopBridge {

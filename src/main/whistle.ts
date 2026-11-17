@@ -25,6 +25,7 @@ export interface WhistleAccess {
   find(configured: string): Promise<string>;
   resolve(configured: string): Promise<{path: string; api: WhistleApi}>;
   start(path: string): Promise<void>;
+  endpoint?(configured: string): Promise<{port: number}>;
 }
 export function compatibleVersion(version: string): boolean {
   const [major, minor, patch] = version.split('.').map(Number);
@@ -42,6 +43,7 @@ function commandEnvironment(binary: string) {
 }
 export class LocalWhistle implements WhistleAccess {
   private cached?: {path: string; api: WhistleApi};
+  private configLoader?: (options: unknown, callback?: (error: Error | null, config?: {options: {port: number}}) => void) => void;
   async find(configured: string): Promise<string> {
     const candidates = configured ? [configured] : (process.env.PATH || '').split(':').filter(Boolean).map(p => join(p, 'w2'));
     if (!configured) {
@@ -66,7 +68,23 @@ export class LocalWhistle implements WhistleAccess {
     const api = requireAtWhistle(modulePath) as WhistleApi;
     if (!api.network?.getStatus || !api.rules?.get || !api.rules?.add) throw new Error('Whistle API 不兼容，请升级至 2.10.7 或更新版本。');
     this.cached = {path, api};
+    this.configLoader = requireAtWhistle(join(dirname(modulePath), 'use')).getConfig;
     return this.cached;
+  }
+  async endpoint(configured: string): Promise<{port: number}> {
+    await this.resolve(configured);
+    const read = (client: boolean) => new Promise<{port:number}>((res,rej) => {
+      const callback = (error:Error|null, config?:{options:{port:number}}) => {
+        const port = Number(config?.options.port);
+        if (error) rej(error);
+        else if (!Number.isInteger(port) || port<1 || port>65535) rej(new Error('无法获取 Whistle 监听端口。'));
+        else res({port});
+      };
+      if (client) this.configLoader!(true, callback);
+      else this.configLoader!(callback);
+    });
+    // Match the official API's CLI-first, desktop-client-fallback discovery.
+    return read(false).catch(() => read(true));
   }
   async start(configured: string) {
     const path = await this.find(configured);

@@ -40,7 +40,6 @@ export interface DesktopBridge {
   importBackup(): Promise<AppData | null>;
   exportBackup(): Promise<boolean>;
   importResponse(): Promise<string | null>;
-  openWhistle(): Promise<void>;
   openDataFolder(): Promise<void>;
   systemProxyStatus(): Promise<SystemProxyStatus>;
   setSystemProxy(enabled: boolean): Promise<SystemProxyStatus>;

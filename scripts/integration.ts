@@ -1,5 +1,4 @@
-import { execFile, fork } from 'node:child_process';
-import { promisify } from 'node:util';
+import { fork } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createServer, request } from 'node:http';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -9,10 +8,9 @@ import { DataStore } from '../src/main/store';
 import { SyncController } from '../src/main/sync';
 import type { WhistleAccess, WhistleApi } from '../src/main/whistle';
 
-const exec = promisify(execFile);
-const {stdout} = await exec('w2',['root','bin/api']);
-const apiPath = stdout.trim();
-const whistleRoot = resolve(dirname(apiPath),'..');
+const dependency = createRequire(import.meta.url);
+const whistleRoot = dirname(dependency.resolve('whistle/package.json'));
+const apiPath = join(whistleRoot, 'bin/api');
 await mkdir('test-results',{recursive:true});
 const temp = await mkdtemp(resolve('test-results/proxy-'));
 process.env.WHISTLE_PATH = join(temp,'api-config');

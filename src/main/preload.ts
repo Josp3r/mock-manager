@@ -10,11 +10,19 @@ const bridge: DesktopBridge = {
   startWhistle: () => ipcRenderer.invoke('manager:startWhistle'),
   enableMultiSelect: () => ipcRenderer.invoke('manager:enableMultiSelect'),
   enableRules: () => ipcRenderer.invoke('manager:enableRules'),
-  chooseW2: () => ipcRenderer.invoke('manager:chooseW2'),
+  testConnection: () => ipcRenderer.invoke('manager:testConnection'),
+  exportCertificate: () => ipcRenderer.invoke('manager:exportCertificate'),
+  onPrepareQuit: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, id: string) => {
+      void callback().then(() => ipcRenderer.send('manager:preparedQuit', {id, ok: true}),
+        error => ipcRenderer.send('manager:preparedQuit', {id, ok: false, error: error instanceof Error ? error.message : String(error)}));
+    };
+    ipcRenderer.on('manager:prepareQuit', listener);
+    return () => { ipcRenderer.removeListener('manager:prepareQuit', listener); };
+  },
   importBackup: () => ipcRenderer.invoke('manager:importBackup'),
   exportBackup: () => ipcRenderer.invoke('manager:exportBackup'),
   importResponse: () => ipcRenderer.invoke('manager:importResponse'),
-  openWhistle: () => ipcRenderer.invoke('manager:openWhistle'),
   openDataFolder: () => ipcRenderer.invoke('manager:openDataFolder'),
   systemProxyStatus: () => ipcRenderer.invoke('manager:systemProxyStatus'),
   setSystemProxy: (enabled: boolean) => ipcRenderer.invoke('manager:setSystemProxy', enabled),

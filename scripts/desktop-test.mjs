@@ -2,7 +2,8 @@ import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
-import { createProxyHarness } from './proxy-harness.mjs';
+import { get } from 'node:http';
+import { X509Certificate } from 'node:crypto';
 
 await mkdir('test-results',{recursive:true});
 const dataDir=await mkdtemp(resolve('test-results/desktop-'));
@@ -11,6 +12,12 @@ delete env.ELECTRON_RUN_AS_NODE;
 const launch=()=>electron.launch({args:['.'],cwd:process.cwd(),env});
 let app=await launch();
 let proxy;
+const proxyCall = () => new Promise((resolve, reject) => {
+  const req = get({host:'127.0.0.1',port:proxy.port,path:'http://api.example.test/api/users',agent:false}, res => {
+    let text=''; res.on('data', chunk => text+=chunk); res.on('end',()=>{try { resolve({body:JSON.parse(text)}); } catch(error) { reject(error); }});
+  });
+  req.on('error',reject);
+});
 const errors=[];
 try {
   let page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
@@ -70,9 +77,6 @@ try {
   }
   assert.ok(JSON.stringify(stored).includes('没有匹配的用户'),'closing must flush pending draft');
   await app.close();
-  proxy=await createProxyHarness(dataDir,'::1');
-  stored.settings.w2Path=proxy.w2;
-  await writeFile(join(dataDir,'data.json'),JSON.stringify(stored,null,2));
   app=await launch();page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
   await page.getByRole('button',{name:'桌面验证项目',exact:true}).click();
   await page.getByRole('heading',{name:'查询用户列表',exact:true}).waitFor();
@@ -80,38 +84,39 @@ try {
   await page.getByRole('button',{name:'连接设置',exact:true}).click();
   await page.getByRole('heading',{name:'连接设置',exact:true}).waitFor();
   const settings=page.getByRole('dialog');
-  const address=`[::1]:${proxy.port}`;
+  await page.waitForFunction(async()=> (await window.mockManager.status()).running);
+  proxy=await page.evaluate(()=>window.mockManager.status());
+  const address=proxy.address;
   await settings.getByText(address,{exact:false}).waitFor();
   await page.locator('.statusbar').getByText(address,{exact:true}).waitFor();
-  assert.ok((await settings.innerText()).includes('w2 路径'));
-  const opened=await app.evaluate(async ({BrowserWindow,shell}) => {
-    const urls=[];
-    const openExternal=shell.openExternal;
-    shell.openExternal=async url=>{ urls.push(url); };
-    try {
-      await BrowserWindow.getAllWindows()[0].webContents.executeJavaScript('window.mockManager.openWhistle()');
-      return urls;
-    } finally {
-      shell.openExternal=openExternal;
-    }
-  });
-  assert.deepEqual(opened,[`http://${address}/`]);
+  assert.ok((await settings.innerText()).includes('应用内置 Whistle'));
+  assert.ok(!(await settings.innerText()).includes('选择 w2'));
+  assert.equal((await page.evaluate(()=>window.mockManager.testConnection())).ok,true);
+  const certPath=join(dataDir,'exported.crt');
+  await app.evaluate(({dialog}, filePath) => {dialog.showSaveDialog=async()=>({canceled:false,filePath});}, certPath);
+  assert.equal(await page.evaluate(()=>window.mockManager.exportCertificate()),true);
+  assert.equal(new X509Certificate(await readFile(certPath)).ca,true);
+  assert.ok(!(await readFile(certPath,'utf8')).includes('PRIVATE KEY'));
+  await page.screenshot({path:'test-results/builtin-settings.png'});
   await page.getByRole('button',{name:'完成',exact:true}).click();
   await page.getByRole('button',{name:'应用到 Whistle',exact:true}).click();
   await page.getByRole('button',{name:'已同步',exact:true}).waitFor();
-  assert.equal((await proxy.call()).body.message,'没有匹配的用户');
+  assert.equal((await proxyCall()).body.message,'没有匹配的用户');
   const status=await page.evaluate(()=>window.mockManager.status());
-  assert.equal(status.host,'::1','real resolver host');
+  assert.equal(status.host,'127.0.0.1','builtin loopback host');
   assert.equal(status.port,proxy.port,'real resolver port');
   await page.getByRole('tab',{name:'默认响应',exact:true}).click();
   await page.getByRole('button',{name:'应用到 Whistle',exact:true}).click();
   await page.getByRole('button',{name:'已同步',exact:true}).waitFor();
-  assert.equal((await proxy.call()).body.data[0].name,'示例用户');
+  assert.equal((await proxyCall()).body.data[0].name,'示例用户');
   await page.screenshot({path:'test-results/desktop-workbench.png'});
   await page.setViewportSize({width:1080,height:720});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'minimum-width layout overflows');
   await page.screenshot({path:'test-results/desktop-compact.png'});
+  await page.getByLabel('响应体 JSON',{exact:true}).fill('{\"quitFlush\":true}');
+  await app.close();
+  assert.ok((await readFile(join(dataDir,'data.json'),'utf8')).includes('quitFlush'),'quit must await draft save');
   assert.deepEqual(errors,[]);
-  await writeFile('test-results/desktop-result.json',JSON.stringify({passed:true,dataDir,checks:['native preload','project/endpoint CRUD','JSON editing','scenario selection','project presets','draft validation','close flush','persistence after restart','real Whistle Apply','real scenario switch','IPv6 proxy host and nondefault port','settings and open URL','default project layout at 1440 and 1080']},null,2));
+  await writeFile('test-results/desktop-result.json',JSON.stringify({passed:true,dataDir,checks:['native preload','project/endpoint CRUD','JSON editing','scenario selection','project presets','draft validation','close flush','persistence after restart','real Whistle Apply','real scenario switch','builtin proxy without global w2','certificate export','proxy self-test','default project layout at 1440 and 1080']},null,2));
   console.log('PASS: native Electron CRUD, scenes, presets, invalid draft protection, close flush, persistence, real Whistle Apply/switch, settings and compact layout.');
-} finally { await app.close().catch(()=>{});if(proxy)await proxy.close(); }
+} finally { await app.close().catch(()=>{}); }

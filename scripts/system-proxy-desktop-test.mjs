@@ -1,7 +1,9 @@
 import { _electron as electron } from 'playwright';
-import { mkdtemp, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createInitialData } from '../src/core/model.ts';
 
 await mkdir('test-results', { recursive: true });
@@ -49,6 +51,9 @@ try {
   assert.equal(installed.ProxyAutoConfigEnable, 0); assert.equal(installed.SOCKSEnable, 0);
   assert.deepEqual(installed.ExceptionsList, original.services[0].configuration.ExceptionsList);
   await page.screenshot({ path: 'test-results/system-proxy-on.png' });
+  await page.getByRole('button', { name: '完成', exact: true }).click();
+  const editor = page.getByLabel('响应体 JSON', { exact: true });
+  await editor.fill('{"beforeCancelledQuit":true}');
   // Cancellation of quit restoration must leave the engine and app alive.
   const cancelQuit = await read(); cancelQuit.cancelNext = true; await writeFile(fixture, JSON.stringify(cancelQuit));
   await app.evaluate(({app, dialog}) => {
@@ -60,7 +65,60 @@ try {
   assert.equal(await app.evaluate(()=>globalThis.quitDialogSeen),true);
   assert.equal((await page.evaluate(()=>window.mockManager.status())).running,true);
   assert.equal((await page.evaluate(()=>window.mockManager.systemProxyStatus())).managed,true);
-  await app.close(); app = await launch(); page = await settings();
+  await editor.fill('{"afterCancelledQuit":true}');
+  await page.waitForFunction(() => document.querySelector('.save-state')?.textContent?.includes('草稿已保存'));
+  assert.ok((await readFile(join(root, 'data.json'), 'utf8')).includes('afterCancelledQuit'));
+
+  // Simulate an in-process draft write failure without touching OS settings.
+  await app.evaluate(() => {
+    const filesystem = process.getBuiltinModule('node:fs/promises');
+    const open = filesystem.open;
+    globalThis.quitDialogSeen = false;
+    globalThis.restoreDraftOpen = () => { filesystem.open = open; };
+    filesystem.open = function (path, ...args) {
+      if (typeof path === 'string' && /data\.json\..+\.tmp$/.test(path)) {
+        return Promise.reject(new Error('fixture draft save failure'));
+      }
+      return open(path, ...args);
+    };
+  });
+  await editor.fill('{"failedQuitDraft":true}');
+  await app.evaluate(({app}) => { app.quit(); });
+  for (let i = 0; i < 80; i++) {
+    if (await app.evaluate(() => globalThis.quitDialogSeen)) break;
+    await delay(50);
+  }
+  assert.equal(await app.evaluate(() => globalThis.quitDialogSeen), true, 'draft flush failure must cancel quit');
+  await app.evaluate(() => { globalThis.restoreDraftOpen(); });
+  assert.equal((await page.evaluate(() => window.mockManager.status())).running, true);
+  await editor.fill('{"afterFailedQuit":true}');
+  await page.waitForFunction(() => document.querySelector('.save-state')?.textContent?.includes('草稿已保存'));
+  assert.ok((await readFile(join(root, 'data.json'), 'utf8')).includes('afterFailedQuit'));
+
+  const slowQuit = await read();
+  slowQuit.delayNextWrite = 1800;
+  await writeFile(fixture, JSON.stringify(slowQuit));
+  await editor.fill('{"beforeSlowQuit":true}');
+  const exited = once(app.process(), 'exit');
+  await app.evaluate(({app}) => { app.quit(); });
+  for (let i = 0; i < 40; i++) {
+    if (await access(fixture + '.restoring').then(() => true, () => false)) break;
+    await delay(25);
+  }
+  await access(fixture + '.restoring');
+  await editor.fill('{"lateQuitEdit":true}');
+  assert.equal(await editor.inputValue(), '{"beforeSlowQuit":true}', 'quit must freeze edits after prepare acknowledgement');
+  const exitTimeout = new AbortController();
+  try {
+    const result = await Promise.race([exited, delay(6000, null, {signal: exitTimeout.signal})]);
+    assert.equal(result?.[0], 0, 'app must finish quit after restoration');
+  } finally {
+    exitTimeout.abort();
+  }
+  const saved = await readFile(join(root, 'data.json'), 'utf8');
+  assert.ok(saved.includes('beforeSlowQuit'));
+  assert.ok(!saved.includes('lateQuitEdit'));
+  app = await launch(); page = await settings();
   await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
   assert.equal(await toggle().isChecked(), false);
   assert.deepEqual((await read()).snapshot, original);
@@ -89,11 +147,12 @@ try {
   assert.deepEqual((await read()).snapshot, changed.snapshot);
   assert.deepEqual(errors, []);
   await writeFile('test-results/system-proxy-desktop-result.json', JSON.stringify({ passed: true, realNetworkChanges: false,
-    checks: ['narrow IPC', 'authorization cancellation', 'quit cancelled keeps engine alive', 'enable both protocols', 'PAC/SOCKS/bypass preservation',
+    checks: ['narrow IPC', 'authorization cancellation', 'quit cancellation resumes edits', 'failed quit flush resumes edits', 'slow quit freezes late edits and exits', 'enable both protocols', 'PAC/SOCKS/bypass preservation',
       'quit restoration and restart', 'external-change conflict', 'explicit keep-current release', 'restore without Whistle'] }, null, 2));
   console.log('PASS: system-proxy desktop enable/restore/restart/cancel/conflict flow via isolated helper, no real network changes.');
 } catch (error) {
   const page = await app?.firstWindow().catch(() => null);
-  await page?.screenshot({ path: 'test-results/system-proxy-failure.png' }).catch(() => {});
+  await page?.screenshot({ path: 'test-results/system-proxy-failure.png', timeout: 2000 }).catch(() => {});
+  app?.process().kill('SIGKILL');
   throw error;
 } finally { await app?.close().catch(() => {}); }

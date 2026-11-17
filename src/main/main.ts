@@ -154,6 +154,7 @@ if (gotLock) {
         shutdownInProgress = false;
         preparingQuit = false;
         if (!window) createWindow();
+        window?.webContents.send('manager:quitCancelled');
         window?.show();
         await dialog.showMessageBox(window!, {type: 'error', title: '暂时无法退出',
           message: '应用与内置代理将保持运行',

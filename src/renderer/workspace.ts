@@ -65,7 +65,7 @@ export function useWorkspace() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!bridge || command.current) return;
+    if (!bridge || command.current || preparingQuit.current) return;
     const request = ++statusRequest.current;
     const [connection, proxy] = await Promise.allSettled([bridge.status(), bridge.systemProxyStatus()]);
     if (request !== statusRequest.current) return;
@@ -123,11 +123,11 @@ export function useWorkspace() {
     };
     const unsubscribePrepareQuit = bridge.onPrepareQuit(async () => {
       preparingQuit.current = true;
-      try {
-        await flushBeforeClose();
-      } finally {
-        preparingQuit.current = false;
-      }
+      await flushBeforeClose();
+    });
+    const unsubscribeQuitCancelled = bridge.onQuitCancelled(() => {
+      preparingQuit.current = false;
+      void refresh();
     });
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (permitClose) {
@@ -154,9 +154,10 @@ export function useWorkspace() {
     window.addEventListener('beforeunload', beforeUnload);
     return () => {
       unsubscribePrepareQuit();
+      unsubscribeQuitCancelled();
       window.removeEventListener('beforeunload', beforeUnload);
     };
-  }, [bridge, flush]);
+  }, [bridge, flush, refresh]);
 
   const edit = useCallback((update: (current: AppData) => AppData) => {
     if (!draft.current || command.current || preparingQuit.current) return;

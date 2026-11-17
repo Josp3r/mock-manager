@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { X509Certificate } from 'node:crypto';
 import { createServer, get } from 'node:http';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app } from 'electron';
 import { EmbeddedWhistle } from '../src/main/embedded-whistle';
 
 const profile = process.argv[2];
 app.setPath('userData', profile);
-const worker = join(__dirname, 'whistle-worker.cjs');
+const worker = join(__dirname, process.argv[3] === 'parent-exit' ? 'whistle-worker.cjs' : 'whistle-persistence-worker.cjs');
 const builtin = '@builtin';
 const loopback = '127.0.0.1';
 const engine = new EmbeddedWhistle(profile, worker);
@@ -82,6 +83,56 @@ async function run() {
   assert.deepEqual(await engine.endpoint(builtin), {host, port});
   assert.deepEqual(await (await engine.resolve(builtin)).api.rules.get(name), {value, selected: true});
   assert.equal(new X509Certificate(await engine.certificate()).fingerprint256, ca.fingerprint256);
+
+  // The rule is selected on disk. Delay the next unselect's primary and backup
+  // writes beyond the old worker and parent shutdown timers.
+  const storage = join(profile, 'proxy-engine');
+  const properties = join(storage, '.whistle', 'rules');
+  const diskSelection = async (directory: string) =>
+    (JSON.parse(await readFile(join(directory, 'properties'), 'utf8')) as {selectedList: string[]}).selectedList;
+  assert.ok((await diskSelection(properties)).includes(name));
+  const fault = (kind: string, delay: number, fail = false) =>
+    writeFile(join(storage, kind + '-fault'), JSON.stringify({delay, fail}));
+  await fault('primary', 2200);
+  await fault('backup', 350);
+  const current = (await engine.resolve(builtin)).api;
+  assert.equal(await current.rules.unselect(name), true);
+  assert.deepEqual(await current.rules.get(name), {value, selected: false});
+  await engine.stop();
+  assert.ok(!(await diskSelection(properties)).includes(name), 'stop must wait for the primary selection write');
+  assert.ok(!(await diskSelection(join(properties, '.backup'))).includes(name), 'stop must wait for the backup selection write');
+  await engine.start(builtin);
+  assert.deepEqual(await (await engine.resolve(builtin)).api.rules.get(name), {value, selected: false});
+
+  for (const kind of ['primary', 'backup']) {
+    const current = (await engine.resolve(builtin)).api;
+    await fault(kind, 400, true);
+    assert.equal(await current.rules.select(name), true);
+    await assert.rejects(engine.stop(), new RegExp('fixture ' + kind + ' failure'));
+    assert.deepEqual(await engine.endpoint(builtin), {host, port}, 'stop failure must leave the listener available');
+    assert.deepEqual(await current.rules.get(name), {value, selected: true});
+    assert.equal(await current.rules.unselect(name), true);
+    await engine.stop();
+    await engine.start(builtin);
+    assert.deepEqual(await (await engine.resolve(builtin)).api.rules.get(name), {value, selected: false});
+  }
+
+  // A flush that exceeds the worker's limit must reject without force-killing
+  // the listener. The pending write can complete, and a queued unselect must
+  // supersede the older selection before a second stop succeeds.
+  const latest = (await engine.resolve(builtin)).api;
+  await fault('primary', 10_500);
+  assert.equal(await latest.rules.select(name), true);
+  assert.equal(await latest.rules.unselect(name), true);
+  await assert.rejects(engine.stop(), /超时/);
+  assert.deepEqual(await engine.endpoint(builtin), {host, port});
+  assert.deepEqual(await latest.rules.get(name), {value, selected: false});
+  await engine.stop();
+  assert.ok(!(await diskSelection(properties)).includes(name));
+  assert.ok(!(await diskSelection(join(properties, '.backup'))).includes(name));
+  await engine.start(builtin);
+  assert.deepEqual(await (await engine.resolve(builtin)).api.rules.get(name), {value, selected: false});
+
 }
 
 app.whenReady().then(async () => {

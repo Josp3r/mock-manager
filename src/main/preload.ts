@@ -20,6 +20,11 @@ const bridge: DesktopBridge = {
     ipcRenderer.on('manager:prepareQuit', listener);
     return () => { ipcRenderer.removeListener('manager:prepareQuit', listener); };
   },
+  onQuitCancelled: callback => {
+    const listener = () => callback();
+    ipcRenderer.on('manager:quitCancelled', listener);
+    return () => { ipcRenderer.removeListener('manager:quitCancelled', listener); };
+  },
   importBackup: () => ipcRenderer.invoke('manager:importBackup'),
   exportBackup: () => ipcRenderer.invoke('manager:exportBackup'),
   importResponse: () => ipcRenderer.invoke('manager:importResponse'),

@@ -4,13 +4,14 @@ import { once } from 'node:events';
 import { get } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { build } from 'esbuild';
 
 const profile = await mkdtemp(join(tmpdir(), 'embedded-whistle-test-'));
 const testEntry = resolve('dist-electron/embedded-engine-test.cjs');
+const fixtureEntry = resolve('dist-electron/whistle-persistence-worker.cjs');
 const env = { ...process.env, PATH: join(profile, 'empty-path') };
 delete env.ELECTRON_RUN_AS_NODE;
 
@@ -51,6 +52,7 @@ async function assertWorkerExitsWithParent() {
   }
 }
 try {
+  await copyFile('scripts/fixtures/whistle-persistence-worker.cjs', fixtureEntry);
   await build({
     entryPoints: ['scripts/embedded-engine-test.ts'],
     outfile: testEntry,
@@ -77,5 +79,6 @@ try {
   console.log('Embedded worker exited with its Electron parent');
 } finally {
   await rm(testEntry, { force: true });
+  await rm(fixtureEntry, { force: true });
   await rm(profile, { recursive: true, force: true });
 }

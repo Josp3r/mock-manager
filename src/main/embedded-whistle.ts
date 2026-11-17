@@ -1,4 +1,4 @@
-import { randomBytes, X509Certificate } from 'node:crypto';
+import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { join } from 'node:path';
@@ -8,7 +8,7 @@ import { WHISTLE_LOOPBACK, type RuleValue, type WhistleAccess, type WhistleApi }
 export const BUILTIN_WHISTLE = '@builtin';
 
 const START_TIMEOUT = 15_000;
-const STOP_TIMEOUT = 2_000;
+const STOP_RESPONSE_TIMEOUT = 15_000;
 const REQUEST_TIMEOUT = 5_000;
 const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
 
@@ -192,16 +192,30 @@ export class EmbeddedWhistle implements WhistleAccess {
       // Failed startup already stopped its worker.
     }
     const worker = this.worker;
-    this.ready = undefined;
     if (!worker) return;
     const {child, exited} = worker;
-    child.postMessage({type: 'stop'});
-    const timeout = setTimeout(() => child.kill(), STOP_TIMEOUT);
-    try {
-      await exited;
-    } finally {
-      clearTimeout(timeout);
-    }
+    const id = randomUUID();
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timeout);
+        child.removeListener('message', receive);
+        child.removeListener('exit', onExit);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onExit = () => finish(new Error('内置 Whistle 在确认保存规则前退出。'));
+      const receive = (message: {type?: string; id?: string; error?: string}) => {
+        if (message.id !== id) return;
+        if (message.type === 'stop-ready') finish();
+        else if (message.type === 'stop-error') finish(new Error('内置 Whistle 未能保存规则：' + message.error));
+      };
+      const timeout = setTimeout(() => finish(new Error('等待内置 Whistle 确认保存规则超时。')), STOP_RESPONSE_TIMEOUT);
+      child.on('message', receive);
+      child.once('exit', onExit);
+      child.postMessage({type: 'stop', id});
+    });
+    child.postMessage({type: 'exit', id});
+    await exited;
   }
 
   private async launch() {

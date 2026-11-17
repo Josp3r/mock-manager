@@ -9,6 +9,13 @@ if (process.argv[2] === 'read') {
   process.stdout.write(JSON.stringify(state.snapshot));
 } else if (process.argv[2] === 'write') {
   const { changes, expectedLocation } = JSON.parse(fs.readFileSync(0, 'utf8'));
+  if (state.delayNextWrite) {
+    const delay = state.delayNextWrite;
+    delete state.delayNextWrite;
+    fs.writeFileSync(file, JSON.stringify(state));
+    fs.writeFileSync(file + '.restoring', '');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+  }
   if (state.cancelNext) {
     state.cancelNext = false;
     fs.writeFileSync(file, JSON.stringify(state));

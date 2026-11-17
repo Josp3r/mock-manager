@@ -37,6 +37,7 @@ export interface DesktopBridge {
   testConnection(): Promise<{ ok: boolean; message: string }>;
   exportCertificate(): Promise<boolean>;
   onPrepareQuit(callback: () => Promise<void>): () => void;
+  onQuitCancelled(callback: () => void): () => void;
   importBackup(): Promise<AppData | null>;
   exportBackup(): Promise<boolean>;
   importResponse(): Promise<string | null>;

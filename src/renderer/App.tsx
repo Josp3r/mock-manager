@@ -1,5 +1,5 @@
 import {
-  Activity, BadgeCheck, Cable, ChevronRight, CircleAlert, CloudOff, Database, Folder, FolderOpen, Folders,
+  Activity, BadgeCheck, Cable, ChevronRight, CircleAlert, CloudOff, Compass, Database, Folder, FolderOpen, Folders,
   GitBranch, Layers3, LayoutList, Pencil, Plus, Power, Radio, Save, Search, Send, Settings2, Trash2, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -253,6 +253,9 @@ export function App() {
   const localChanges = !!data?.lastApplied && JSON.stringify(data.projects) !== JSON.stringify(data.lastApplied.projects);
   const sync = connectionCopy(status, !!data?.lastApplied, localChanges, !!workspace.statusError);
   const saveText = { clean: '草稿已保存', pending: '待保存', saving: '保存中…', error: '保存失败' }[workspace.saveState];
+  const engineConnected = status?.running && !workspace.statusError;
+  const proxyConnected = engineConnected && workspace.systemProxy?.state === 'on'
+    && workspace.systemProxy.address === status.address && !workspace.systemProxyError;
 
   return <div className="app">
     <header className="topbar">
@@ -312,6 +315,9 @@ export function App() {
           </>}
         </div>
         <div className="sidebar__footer">
+          <Button kind="quiet" className="sidebar__setup" onClick={() => setOverlay('settings')}>
+            <Compass size={16} aria-hidden="true" /> 代理配置指南
+          </Button>
           <Button kind="quiet" onClick={() => setOverlay('backup')}><Database size={16} aria-hidden="true" /> 数据与备份</Button>
         </div>
       </nav>
@@ -403,14 +409,14 @@ export function App() {
 
     <footer className="statusbar" aria-label="工作台状态">
       <div className="statusbar__area">
-        {status?.running
-          ? <><Cable size={14} aria-hidden="true" /><span>Whistle 已连接</span>{status.address && <code>{status.address}</code>}</>
-          : <><CloudOff size={14} aria-hidden="true" /><span>{workspace.statusError ? '连接检测失败' : status ? 'Whistle 未连接' : '正在检测 Whistle'}</span></>}
+        {engineConnected
+          ? <><Cable size={14} aria-hidden="true" /><span>内置 Whistle 已连接</span>{status.address && <code>{status.address}</code>}</>
+          : <><CloudOff size={14} aria-hidden="true" /><span>{workspace.statusError ? '连接检测失败' : status ? '内置 Whistle 未连接' : '正在检测 Whistle'}</span></>}
         {project && <span className="statusbar__split">{enabledCount} / {project.endpoints.length} 接口启用</span>}
       </div>
       <div className="statusbar__area">
         {workspace.systemProxy?.managed && <Button kind="quiet" onClick={() => setOverlay('settings')} disabled={working}>
-          {workspace.systemProxy.state === 'on' && status?.running ? '系统代理已接管' : '系统代理待处理'}
+          {proxyConnected ? '系统代理已接管' : '系统代理待处理'}
         </Button>}
         {data?.lastApplied && <span>上次应用 {timeLabel(data.lastApplied.at)}</span>}
         {status?.managedSelected && <Button kind="quiet" onClick={workspace.disable} disabled={working} title="只停用本应用的专属规则">

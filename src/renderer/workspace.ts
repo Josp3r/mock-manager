@@ -22,6 +22,7 @@ export function useWorkspace() {
   const [busy, setBusy] = useState('');
   const [commandError, setCommandError] = useState('');
   const [notice, setNotice] = useState('');
+  const [connectionTest, setConnectionTest] = useState<Awaited<ReturnType<DesktopBridge['testConnection']>>>();
 
   const draft = useRef<AppData | undefined>(undefined);
   const revision = useRef(0);
@@ -29,6 +30,7 @@ export function useWorkspace() {
   const saveOperation = useRef<Promise<void> | undefined>(undefined);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const command = useRef(false);
+  const preparingQuit = useRef(false);
   const statusRequest = useRef(0);
 
   const publish = useCallback((next: AppData) => {
@@ -114,6 +116,19 @@ export function useWorkspace() {
     if (!bridge) return;
     let closing = false;
     let permitClose = false;
+    const flushBeforeClose = async () => {
+      do {
+        await flush();
+      } while (savedRevision.current !== revision.current);
+    };
+    const unsubscribePrepareQuit = bridge.onPrepareQuit(async () => {
+      preparingQuit.current = true;
+      try {
+        await flushBeforeClose();
+      } finally {
+        preparingQuit.current = false;
+      }
+    });
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (permitClose) {
         permitClose = false;
@@ -126,9 +141,7 @@ export function useWorkspace() {
       closing = true;
       void (async () => {
         try {
-          do {
-            await flush();
-          } while (savedRevision.current !== revision.current);
+          await flushBeforeClose();
           permitClose = true;
           window.close();
         } catch {
@@ -139,11 +152,14 @@ export function useWorkspace() {
       })();
     };
     window.addEventListener('beforeunload', beforeUnload);
-    return () => window.removeEventListener('beforeunload', beforeUnload);
+    return () => {
+      unsubscribePrepareQuit();
+      window.removeEventListener('beforeunload', beforeUnload);
+    };
   }, [bridge, flush]);
 
   const edit = useCallback((update: (current: AppData) => AppData) => {
-    if (!draft.current || command.current) return;
+    if (!draft.current || command.current || preparingQuit.current) return;
     const next = update(draft.current);
     if (next === draft.current) return;
     revision.current += 1;
@@ -165,7 +181,7 @@ export function useWorkspace() {
     onResult?: (value: T) => void,
     saveDraft = false,
   ) {
-    if (!bridge || command.current) return;
+    if (!bridge || command.current || preparingQuit.current) return;
     command.current = true;
     statusRequest.current += 1;
     setBusy(label);
@@ -197,7 +213,18 @@ export function useWorkspace() {
       accept(value.data);
       receiveStatus(value.status);
     }, true),
-    start: () => void run('正在启动', api => api.startWhistle(), receiveStatus, true),
+    start: () => void run('正在启动内置 Whistle', api => {
+      setConnectionTest(undefined);
+      return api.startWhistle();
+    }, receiveStatus),
+    testConnection: () => void run('正在发送代理测试请求', api => {
+      setConnectionTest(undefined);
+      return api.testConnection();
+    }, setConnectionTest),
+    connectionTest,
+    exportCertificate: () => void run('正在导出根证书', api => api.exportCertificate(), exported => {
+      setNotice(exported ? '根证书已导出。请在钥匙串访问中安装并信任它。' : '已取消导出根证书。');
+    }),
     enableMultiSelect: () => void run('正在开启多选', api => api.enableMultiSelect(), receiveStatus),
     enableRules: () => void run('正在启用规则', api => api.enableRules(), receiveStatus),
     setSystemProxy: (enabled: boolean) => void run(enabled ? '正在设置系统代理，请完成系统授权' : '正在恢复原代理，请完成系统授权',
@@ -214,11 +241,6 @@ export function useWorkspace() {
       if (value.managed || value.state === 'error') setCommandError(value.message || '系统代理状态已变化，请刷新后重试。');
       else setNotice('已保留当前系统设置并结束接管。原配置备份仍保存在应用数据目录。');
     }),
-    chooseW2: () => void run('正在选择 w2', api => api.chooseW2(), path => {
-      if (path && draft.current) {
-        accept({ ...draft.current, settings: { ...draft.current.settings, w2Path: path } });
-      }
-    }, true),
     importBackup: () => void run('正在导入备份', api => api.importBackup(), value => {
       if (value) {
         accept(value);

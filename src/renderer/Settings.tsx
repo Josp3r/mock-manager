@@ -1,4 +1,4 @@
-import { ExternalLink, FolderOpen, RefreshCw, Unplug } from 'lucide-react';
+import { Download, ExternalLink, FolderOpen, RefreshCw, Unplug } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { timeLabel } from './model';
 import { Button, Dialog, Notice, Switch } from './ui';
@@ -9,7 +9,8 @@ export function Settings({ workspace, close, restore, dataOnly }: {
 }) {
   const {
     status, statusError, busy, commandError, clearCommandError, notice, clearNotice, data,
-    refresh, chooseW2, start, enableMultiSelect, enableRules, openWhistle, openDataFolder,
+    refresh, start, testConnection, connectionTest, exportCertificate,
+    enableMultiSelect, enableRules, openWhistle, openDataFolder,
     importBackup, exportBackup,
     systemProxy, systemProxyError, setSystemProxy, releaseSystemProxy,
   } = workspace;
@@ -20,39 +21,52 @@ export function Settings({ workspace, close, restore, dataOnly }: {
     : systemProxy.state === 'external' ? '当前使用外部配置；开启后会保存原配置。'
     : systemProxy.state === 'error' ? '暂时无法确认系统代理状态。' : '未由本应用接管。';
 
-  const path = status?.w2Path || data?.settings.w2Path;
+  const proxyMoved = !!systemProxy?.managed && !!status?.running && !!systemProxy.address && status.address !== systemProxy.address;
+  const engineStatus = statusError ? '状态读取失败'
+    : !status ? '正在检测…'
+    : status.running ? `运行中${status.version ? ` · ${status.version}` : ''}` : '未运行';
   return <Dialog title={dataOnly ? '数据与备份' : '连接设置'} close={close} className="settings-dialog">
     <div className="dialog__body settings-body">
       {commandError && <Notice error close={clearCommandError}>{commandError}</Notice>}
       {notice && <Notice close={clearNotice}>{notice}</Notice>}
       {!dataOnly && statusError && <Notice error>{statusError}</Notice>}
       {!dataOnly && status?.error && <Notice error>{status.error}</Notice>}
-      {!dataOnly && <section className="settings-section">
-        <h3>Whistle</h3>
-        <Setting name="连接状态"
-          value={!status ? '正在检测…' : status.running ? `运行中${status.version ? `（${status.version}）` : ''}` : status.installed ? '未运行' : '未找到 w2'}>
+      {!dataOnly && <section className="settings-section" aria-labelledby="connection-setup">
+        <h3 id="connection-setup">代理配置指南</h3>
+        <Setting name="应用内置 Whistle" value={<>
+          <div className="engine-state" role="status">
+            <span>{engineStatus}</span>
+            {status?.running && status.address && !statusError && <code>{status.address}</code>}
+          </div>
+          <span>打开应用时自动启动。关闭窗口后继续运行。</span>
+        </>}>
           <Button onClick={() => void refresh()} disabled={!!busy}><RefreshCw size={14} aria-hidden="true" /> 刷新</Button>
-          {status?.installed && !status.running && <Button onClick={start} disabled={!!busy}>启动 Whistle</Button>}
+          {(statusError || status && !status.running) && <Button onClick={start} disabled={!!busy}>重试启动</Button>}
+          {status?.running && status.address && !statusError && <Button onClick={openWhistle} disabled={!!busy}>
+            <ExternalLink size={14} aria-hidden="true" /> 打开 Whistle
+          </Button>}
         </Setting>
-        <Setting name="w2 路径" value={path ? <code className="setting-path">{path}</code> : '自动检测'}>
-          <Button onClick={chooseW2} disabled={!!busy}>选择 w2</Button>
-        </Setting>
-        <Setting name="代理端口与 HTTPS" value={status?.running
-          ? `${status.address ?? '代理地址未知'}，HTTPS 解密${status.httpsEnabled ? '已开启' : '未开启'}`
-          : '连接后可查看'}>
-          <Button onClick={openWhistle} disabled={!status?.address || !!busy}><ExternalLink size={14} aria-hidden="true" /> 打开 Whistle</Button>
+        <Setting name="HTTPS 根证书" value={<>
+          <span>在 macOS 上双击导出的 .crt 文件，添加到「登录」钥匙串。打开证书的「信任」选项，选择「始终信任」，然后重启浏览器。</span>
+          {status?.running && status.httpsEnabled !== undefined && <span>
+            Whistle 的 HTTPS 解密{status.httpsEnabled ? '已开启' : '未开启，请在 Whistle 中开启'}。证书信任状态请在钥匙串访问中确认。
+          </span>}
+        </>}>
+          <Button onClick={exportCertificate} disabled={!status?.running || !!statusError || !!busy}>
+            <Download size={14} aria-hidden="true" /> 导出根证书
+          </Button>
         </Setting>
         <Setting name="系统代理" value={<>
           <span role="status">{proxyCopy}</span>
           {!!systemProxy?.services.length && <span>{systemProxy.services.join('、')}</span>}
         </>}>
           <Switch label="系统代理" checked={!!systemProxy?.managed}
-            disabled={!!busy || !systemProxy?.supported || (!systemProxy.managed && (!status?.running || systemProxy.state === 'error' || !!systemProxyError))}
+            disabled={!!busy || !systemProxy?.supported || (!systemProxy.managed && (!status?.running || !!statusError || systemProxy.state === 'error' || !!systemProxyError))}
             change={setSystemProxy} />
         </Setting>
         {systemProxyError && <Notice error>{systemProxyError}</Notice>}
         {systemProxy?.managed && status && !status.running && <Notice error>Whistle 未运行，系统代理可能影响联网。请关闭系统代理开关，恢复原配置。</Notice>}
-        {systemProxy?.managed && status?.running && systemProxy.address && status.address !== systemProxy.address && <Notice error>Whistle 地址已变化。请先关闭系统代理恢复原配置，再重新开启以使用新地址。</Notice>}
+        {proxyMoved && <Notice error>Whistle 地址已变化。请先关闭系统代理恢复原配置，再重新开启以使用新地址。</Notice>}
         {systemProxy?.message && <p className="muted settings-note">{systemProxy.message}</p>}
         {systemProxy?.managed && systemProxy.state === 'changed' && <div className="proxy-recovery">
           {!confirmRelease ? <Button onClick={() => setConfirmRelease(true)} disabled={!!busy}>保留当前设置</Button> : <>
@@ -61,7 +75,18 @@ export function Settings({ workspace, close, restore, dataOnly }: {
               <Button onClick={() => { setConfirmRelease(false); releaseSystemProxy(); }} disabled={!!busy}>确认保留</Button></div>
           </>}
         </div>}
-        <p className="muted settings-note">开启前保存原配置，关闭时恢复。设置时 macOS 可能要求授权。关闭应用后保持当前代理；浏览器请使用系统代理，避免扩展覆盖。HTTPS 仍需安装并信任 Whistle 根证书、开启 HTTPS 解密。</p>
+        <p className="muted settings-note">开启系统代理后，浏览器请选择使用系统代理，避免扩展覆盖。关闭开关或退出应用时会恢复本应用接管前的配置。macOS 可能要求授权，恢复失败时应用会暂停退出。</p>
+        <Setting name="代理连接测试" value={<>
+          <span>向本地服务发出一条经过内置 Whistle 的 HTTP 请求。浏览器是否使用系统代理、HTTPS 证书是否受信任，请在浏览器中确认。</span>
+          {status?.running && !statusError && connectionTest && <span
+            className={`connection-test${connectionTest.ok ? '' : ' connection-test--error'}`}
+            role={connectionTest.ok ? 'status' : 'alert'}>{connectionTest.message}</span>}
+        </>}>
+          <Button onClick={testConnection} disabled={!status?.running || !!statusError || !!busy}>测试连接</Button>
+        </Setting>
+      </section>}
+      {!dataOnly && <section className="settings-section">
+        <h3>规则管理</h3>
         <Setting name="多选规则"
           value={status?.multiSelect === undefined ? '连接后可查看' : status.multiSelect ? '已开启' : '应用前需开启，以保留已有规则的选中状态。'}>
           {status?.running && status.multiSelect === false && <Button onClick={enableMultiSelect} disabled={!!busy}>开启多选规则</Button>}

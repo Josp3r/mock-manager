@@ -3,9 +3,9 @@ import type { AppData, AppliedSnapshot, ApplyResult, ConnectionStatus } from '..
 import { compileRules, configurationHash } from '../core/compiler';
 import { validateForApply } from '../core/model';
 import { DataStore, type PendingSync } from './store';
-import { compatibleVersion, ruleValue, type WhistleAccess, type WhistleApi } from './whistle';
+import { compatibleVersion, ruleValue, whistleAddress, WHISTLE_LOOPBACK, type WhistleAccess, type WhistleApi } from './whistle';
 
-type ConnectedWhistle = { api: WhistleApi; path: string; port: number; version: string };
+type ConnectedWhistle = { api: WhistleApi; path: string; host: string; port: number; address: string; version: string };
 type Managed = {
   value: string | null;
   selected: boolean;
@@ -14,6 +14,7 @@ type Managed = {
 };
 
 const EXTERNAL_CONFLICT = '专属规则在 Whistle 中被外部修改。请在 Whistle 中处理冲突后重试。';
+const DIFFERENT_WHISTLE = '上次同步使用了其他 Whistle 路径或代理地址，请连接该实例后处理恢复。';
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -54,7 +55,8 @@ function committed(data: AppData, intent: PendingSync): boolean {
 }
 
 function sameConnection(connection: ConnectedWhistle, intent: PendingSync): boolean {
-  return connection.path === intent.w2Path && connection.port === intent.port;
+  return connection.path === intent.w2Path && connection.port === intent.port
+    && connection.host === (intent.host ?? WHISTLE_LOOPBACK);
 }
 
 function knownPendingValue(managed: Managed, intent: PendingSync): boolean {
@@ -109,7 +111,8 @@ export class SyncController {
     if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('无法确认 Whistle 的实际代理端口。');
     }
-    return { api, path, port, version: meta.version };
+    const host = endpoint?.host?.trim() || WHISTLE_LOOPBACK;
+    return { api, path, host, port, address: whistleAddress(host, port), version: meta.version };
   }
 
   private async statusNow(): Promise<ConnectionStatus> {
@@ -125,7 +128,9 @@ export class SyncController {
       const connection = await this.connect(data);
       state.running = true;
       state.version = connection.version;
+      state.host = connection.host;
       state.port = connection.port;
+      state.address = connection.address;
       const [view, https, intent] = await Promise.all([
         readManaged(connection.api, name), connection.api.isEnabledHTTPS(), this.store.pendingSync(),
       ]);
@@ -136,7 +141,7 @@ export class SyncController {
       if (intent && !committed(data, intent)) {
         state.syncState = 'conflict';
         if (intent.ruleName !== name || !sameConnection(connection, intent)) {
-          state.error = '上次同步使用了其他 Whistle 路径或端口，请连接该实例后处理恢复。';
+          state.error = DIFFERENT_WHISTLE;
         } else if (!knownPendingValue(view, intent)) {
           state.error = EXTERNAL_CONFLICT;
         } else {
@@ -183,7 +188,7 @@ export class SyncController {
       return view;
     }
     if (intent.ruleName !== name || !sameConnection(connection, intent)) {
-      throw new Error('上次同步使用了其他 Whistle 路径或端口，请连接该实例后处理恢复。');
+      throw new Error(DIFFERENT_WHISTLE);
     }
     if (!knownPendingValue(view, intent)) throw new Error(EXTERNAL_CONFLICT);
 
@@ -226,6 +231,7 @@ export class SyncController {
     const intent: PendingSync = {
       ruleName: name,
       w2Path: connection.path,
+      host: connection.host,
       port: connection.port,
       beforeValue: before.value,
       beforeSelected: before.selected,
@@ -335,7 +341,7 @@ export class SyncController {
       validateForApply(recovery);
       const fixture = await this.store.repairFixtures(recovery);
       const lastApplied = this.snapshot(recovery, compileRules(recovery, fixture));
-      return this.applyTransition(data, { ...recovery, lastApplied }, connection, before);
+      return this.applyTransition(data, { ...data, lastApplied }, connection, before);
     });
   }
 

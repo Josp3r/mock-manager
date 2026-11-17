@@ -9,6 +9,7 @@ export interface AppliedSnapshot { hash: string; at: string; ruleName: string; r
 export interface AppData { schemaVersion: 1; installationId: string; projects: Project[]; settings: { w2Path: string }; lastApplied?: AppliedSnapshot }
 export interface ConnectionStatus {
   installed: boolean; running: boolean; w2Path: string; version?: string; port?: number;
+  host?: string; address?: string;
   httpsEnabled?: boolean; multiSelect?: boolean; rulesDisabled?: boolean;
   managedSelected?: boolean; ruleName?: string; error?: string; lastAppliedAt?: string;
   syncState: 'pending' | 'synced' | 'disabled' | 'conflict' | 'offline';

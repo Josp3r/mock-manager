@@ -31,9 +31,9 @@ export function Settings({ workspace, close, restore, dataOnly }: {
           <Button onClick={chooseW2} disabled={!!busy}>选择 w2</Button>
         </Setting>
         <Setting name="代理端口与 HTTPS" value={status?.running
-          ? `${status.port ? `127.0.0.1:${status.port}` : '端口未知'}，HTTPS 解密${status.httpsEnabled ? '已开启' : '未开启'}`
+          ? `${status.address ?? '代理地址未知'}，HTTPS 解密${status.httpsEnabled ? '已开启' : '未开启'}`
           : '连接后可查看'}>
-          <Button onClick={openWhistle} disabled={!status?.port || !!busy}><ExternalLink size={14} aria-hidden="true" /> 打开 Whistle</Button>
+          <Button onClick={openWhistle} disabled={!status?.address || !!busy}><ExternalLink size={14} aria-hidden="true" /> 打开 Whistle</Button>
         </Setting>
         <p className="muted settings-note">请在系统或浏览器配置 Whistle 代理。拦截 HTTPS 时，还需在 Whistle 安装并信任根证书、开启 HTTPS 解密。</p>
         <Setting name="多选规则"

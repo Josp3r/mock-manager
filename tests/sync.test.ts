@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DataStore } from '../src/main/store';
@@ -95,11 +95,70 @@ describe('managed Whistle synchronization', () => {
     expect(saved.lastApplied).toBeDefined(); expect(saved.projects[0].name).toBe('新的草稿');
     expect((await controller.status()).syncState).toBe('pending');
   });
-  it('restores the previous successful scene after editing the draft', async () => {
-    await active(); const applied = await controller.apply();
-    const draft = await store.load(); draft.projects[0].endpoints[0].enabled = false;
-    await controller.saveDraft(draft); const restored = await controller.restore();
-    expect(restored.data.projects).toEqual(applied.data.projects); expect(restored.status.syncState).toBe('synced');
+  it('restores the applied rules and fixtures without replacing the saved draft', async () => {
+    await active();
+    const applied = (await controller.apply()).data.lastApplied!;
+    const [fixture] = await readdir(join(root, 'fixtures'));
+    await rm(join(root, 'fixtures', fixture));
+    await controller.disable();
+
+    const draft = await store.load();
+    const endpoint = draft.projects[0].endpoints[0];
+    endpoint.scenarios[0].body = '{unfinished';
+    endpoint.scenarios.push({ ...endpoint.scenarios[0], id: 'draft-scene', name: '新场景' });
+    draft.projects.push({ id: 'draft-project', name: '新项目', description: '', endpoints: [], presets: [] });
+    await controller.saveDraft(draft);
+
+    const restored = await controller.restore();
+    expect(restored.data.projects).toEqual(draft.projects);
+    expect((await store.load()).projects).toEqual(draft.projects);
+    expect(restored.data.lastApplied?.projects).toEqual(applied.projects);
+    expect(engine.files.get(applied.ruleName)).toEqual({ value: applied.rules, selected: true });
+    await store.verifyFixtures({ ...draft, projects: applied.projects });
+    expect(restored.status.syncState).toBe('pending');
+
+    await controller.saveDraft({ ...draft, projects: applied.projects });
+    expect((await controller.restore()).status.syncState).toBe('synced');
+  });
+
+  it.each([
+    [undefined, '127.0.0.1:39001'],
+    ['0.0.0.0', '127.0.0.1:39001'],
+    ['::', '[::1]:39001'],
+    ['0:0:0:0:0:0:0:0', '[::1]:39001'],
+    ['127.0.0.2', '127.0.0.2:39001'],
+    ['fe80::2', '[fe80::2]:39001'],
+    ['[::1]', '[::1]:39001'],
+  ])('reports a usable address for resolved host %s', async (host, address) => {
+    engine.access.endpoint = async () => ({ host, port: 39001 });
+    expect(await controller.status()).toMatchObject({ running: true, host: host ?? '127.0.0.1', port: 39001, address });
+  });
+
+  it.each([
+    { before: '::1', other: '127.0.0.1', legacy: false },
+    { before: '127.0.0.1', other: '::1', legacy: true },
+  ])('requires the previous listening host for recovery (legacy: $legacy)', async ({ before, other, legacy }) => {
+    let host = before;
+    engine.access.endpoint = async () => ({ host, port: 8899 });
+    const data = await active();
+    engine.behavior.afterNextAdd = () => { engine.behavior.offline = true; };
+    await expect(controller.apply()).rejects.toThrow();
+    engine.behavior.offline = false;
+
+    if (legacy) {
+      const path = join(root, 'sync.pending.json');
+      const journal = JSON.parse(await readFile(path, 'utf8'));
+      delete journal.host;
+      await writeFile(path, JSON.stringify(journal));
+    }
+    const reopened = new SyncController(new DataStore(root), engine.access);
+    const name = controller.ruleName(data);
+    host = other;
+    expect(await reopened.status()).toMatchObject({ syncState: 'conflict', canRecover: false });
+    await expect(reopened.restore()).rejects.toThrow(/其他 Whistle/);
+    expect(engine.files.get(name)?.selected).toBe(true);
+    host = before;
+    expect((await reopened.restore()).status.syncState).toBe('disabled');
   });
 
   it('rejects an oversized applied snapshot before writing a Whistle rule', async () => {

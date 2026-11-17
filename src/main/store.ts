@@ -14,6 +14,7 @@ export interface ProjectBackup {
 export interface PendingSync {
   ruleName: string;
   w2Path: string;
+  host?: string; // Absent in journals written before host detection.
   port: number;
   beforeValue: string | null;
   beforeSelected: boolean;
@@ -214,6 +215,7 @@ export class DataStore {
         if (!entry || entry.schemaVersion !== 1 || typeof entry.ruleName !== 'string' ||
           !/^MockManager-[a-z\d][a-z\d_-]{0,79}$/i.test(entry.ruleName) ||
           typeof entry.w2Path !== 'string' || entry.w2Path.length > 4096 ||
+          (entry.host !== undefined && (typeof entry.host !== 'string' || !entry.host || entry.host.length > 255)) ||
           !Number.isInteger(entry.port) || entry.port < 1 || entry.port > 65535 ||
           (entry.beforeValue !== null && (typeof entry.beforeValue !== 'string' || entry.beforeValue.length > 8_000_000)) ||
           typeof entry.beforeSelected !== 'boolean' ||

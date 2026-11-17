@@ -244,7 +244,7 @@ export function App() {
     showForm({
       title: '恢复专属规则',
       submit: '恢复',
-      description: '撤回未完成的应用，恢复专属规则先前的状态。',
+      description: '恢复 Whistle 中的专属规则和上次应用的响应。当前草稿会保留，未应用的更改仍需手动应用。',
       danger: true,
       action: workspace.restore,
     }, 'settings');
@@ -404,7 +404,7 @@ export function App() {
     <footer className="statusbar" aria-label="工作台状态">
       <div className="statusbar__area">
         {status?.running
-          ? <><Cable size={14} aria-hidden="true" /><span>Whistle 已连接</span>{status.port && <code>127.0.0.1:{status.port}</code>}</>
+          ? <><Cable size={14} aria-hidden="true" /><span>Whistle 已连接</span>{status.address && <code>{status.address}</code>}</>
           : <><CloudOff size={14} aria-hidden="true" /><span>{workspace.statusError ? '连接检测失败' : status ? 'Whistle 未连接' : '正在检测 Whistle'}</span></>}
         {project && <span className="statusbar__split">{enabledCount} / {project.endpoints.length} 接口启用</span>}
       </div>

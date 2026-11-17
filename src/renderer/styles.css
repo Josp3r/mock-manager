@@ -123,12 +123,21 @@ h1, h2 { text-wrap: balance; }
 .nav-row--module[aria-current] { background: var(--color-paper-4); color: var(--color-ink); }
 
 .requests { border-right: 1px solid var(--color-rule); background: var(--color-paper-2); }
-.requests__header { flex: none; display: grid; gap: var(--space-sm); padding: var(--space-lg) var(--space-md) var(--space-md); }
-.request-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }
-.request-heading h2 { font-size: var(--text-2xl); overflow: clip; white-space: nowrap; text-overflow: ellipsis; }
+.requests__header {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  gap: var(--space-sm);
+  padding: var(--space-lg) var(--space-md) var(--space-md);
+}
+.request-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); min-width: 0; }
+.request-heading h2 { min-width: 0; font-size: var(--text-2xl); overflow: clip; white-space: nowrap; text-overflow: ellipsis; }
 .request-heading__tools { flex: none; display: flex; align-items: center; }
 .request-heading__tools .button { color: var(--color-muted); }
 .project-description {
+  min-width: 0;
   white-space: nowrap;
   overflow: clip;
   text-overflow: ellipsis;

@@ -25,8 +25,21 @@ export interface WhistleAccess {
   find(configured: string): Promise<string>;
   resolve(configured: string): Promise<{path: string; api: WhistleApi}>;
   start(path: string): Promise<void>;
-  endpoint?(configured: string): Promise<{port: number}>;
+  endpoint?(configured: string): Promise<{host?: string; port: number}>;
 }
+type ResolverConfig = {options: {host?: string; port: number}};
+export const WHISTLE_LOOPBACK = '127.0.0.1';
+
+export function whistleAddress(host: string, port: number): string {
+  const ipv6 = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+  const authority = ipv6.includes(':') && /^[a-f\d:.]+$/i.test(ipv6) ? `[${ipv6}]`
+    : /^[a-z\d._-]+$/i.test(host) ? host : '';
+  const hostname = authority && URL.parse(`http://${authority}/`)?.hostname;
+  if (!hostname) throw new Error('无法确认 Whistle 的实际代理地址。');
+  const dialHost = hostname === '[::]' ? '[::1]' : hostname === '0.0.0.0' ? WHISTLE_LOOPBACK : hostname;
+  return `${dialHost}:${port}`;
+}
+
 export function compatibleVersion(version: string): boolean {
   const [major, minor, patch] = version.split('.').map(Number);
   return major > 2 || (major === 2 && (minor > 10 || (minor === 10 && patch >= 7)));
@@ -43,7 +56,7 @@ function commandEnvironment(binary: string) {
 }
 export class LocalWhistle implements WhistleAccess {
   private cached?: {path: string; api: WhistleApi};
-  private configLoader?: (options: unknown, callback?: (error: Error | null, config?: {options: {port: number}}) => void) => void;
+  private configLoader?: (options: unknown, callback?: (error: Error | null, config?: ResolverConfig) => void) => void;
   async find(configured: string): Promise<string> {
     const candidates = configured ? [configured] : (process.env.PATH || '').split(':').filter(Boolean).map(p => join(p, 'w2'));
     if (!configured) {
@@ -71,14 +84,15 @@ export class LocalWhistle implements WhistleAccess {
     this.configLoader = requireAtWhistle(join(dirname(modulePath), 'use')).getConfig;
     return this.cached;
   }
-  async endpoint(configured: string): Promise<{port: number}> {
+  async endpoint(configured: string): Promise<{host?: string; port: number}> {
     await this.resolve(configured);
-    const read = (client: boolean) => new Promise<{port:number}>((res,rej) => {
-      const callback = (error:Error|null, config?:{options:{port:number}}) => {
-        const port = Number(config?.options.port);
+    const read = (client: boolean) => new Promise<{host?: string; port: number}>((res,rej) => {
+      const callback = (error: Error | null, config?: ResolverConfig) => {
+        const options = config?.options;
+        const port = Number(options?.port);
         if (error) rej(error);
         else if (!Number.isInteger(port) || port<1 || port>65535) rej(new Error('无法获取 Whistle 监听端口。'));
-        else res({port});
+        else res({host: options?.host, port});
       };
       if (client) this.configLoader!(true, callback);
       else this.configLoader!(callback);

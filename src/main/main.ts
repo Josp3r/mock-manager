@@ -65,8 +65,8 @@ function setupIpc() {
   handle('openWhistle', async () => {
     const status = await controller.status();
     if (!status.running) throw new Error('请先启动 Whistle。');
-    if (!status.port) throw new Error('未能确认 Whistle 端口，请检查连接后重试。');
-    await shell.openExternal(`http://127.0.0.1:${Number(status.port)}/`);
+    if (!status.address) throw new Error('未能确认 Whistle 代理地址，请检查连接后重试。');
+    await shell.openExternal(`http://${status.address}/`);
   });
   handle('openDataFolder', async () => { await mkdir(dataRoot,{recursive:true}); const error = await shell.openPath(dataRoot); if (error) throw new Error(error); });
 }

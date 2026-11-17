@@ -10,7 +10,7 @@ private let inactiveKey = "__INACTIVE__"
 
 enum ProxyFailure: String, Error {
     case invalidRequest, readFailed, authorization, authorizationUnavailable, conflict
-    case busy, updateFailed, commitFailed, applyFailed, responseTooLarge
+    case busy, updateFailed, commitFailed, applyFailed, responseTooLarge, requesterExited
 }
 
 struct ProtocolState {
@@ -242,7 +242,8 @@ func readSnapshot(_ prefs: SCPreferences) throws -> [String: Any] {
 
 // Stage in an SCPreferences session. The caller holds the lock and only
 // commits if every precondition and setter succeeds.
-func stageChanges(_ request: ProxyRequest, _ prefs: SCPreferences) throws {
+func stageChanges(_ request: ProxyRequest, _ prefs: SCPreferences, requestingPID: pid_t) throws {
+    guard requestingPID > 1, getppid() == requestingPID else { throw ProxyFailure.requesterExited }
     let location = request.expectedLocation != nil ? try currentLocation(prefs) : nil
     if request.expectedLocation != location?.id { throw ProxyFailure.conflict }
     let protocols = try request.changes.map { change -> SCNetworkProtocol in
@@ -270,7 +271,7 @@ private func modificationFailure(_ status: Int32, default failure: ProxyFailure)
     return failure
 }
 
-private func commitChanges(_ request: ProxyRequest) throws {
+private func commitChanges(_ request: ProxyRequest, requestingPID: pid_t) throws {
     var authorization: AuthorizationRef?
     let status = AuthorizationCreate(nil, nil, [], &authorization)
     guard status == errAuthorizationSuccess, let authorization else {
@@ -285,7 +286,10 @@ private func commitChanges(_ request: ProxyRequest) throws {
     // lock. SystemConfiguration requests interactive authorization as needed.
     guard SCPreferencesLock(prefs, false) else { throw modificationFailure(SCError(), default: .updateFailed) }
     defer { SCPreferencesUnlock(prefs) }
-    try stageChanges(request, prefs)
+    // If the requester exited during authorization, a new app instance may
+    // already have restored the original settings and removed its journal.
+    // Check parent identity while holding the same lock used for restoration.
+    try stageChanges(request, prefs, requestingPID: requestingPID)
     guard SCPreferencesCommitChanges(prefs) else { throw modificationFailure(SCError(), default: .commitFailed) }
     // Keep apply distinct: a failure after commit can leave persistent changes.
     guard SCPreferencesApplyChanges(prefs) else { throw ProxyFailure.applyFailed }
@@ -305,6 +309,7 @@ private func readRequest() throws -> ProxyRequest {
 @main
 private struct SystemProxyCommand {
     static func main() {
+        let requestingPID = getppid()
         do {
             let result: [String: Any]
             switch Array(CommandLine.arguments.dropFirst()) {
@@ -312,7 +317,7 @@ private struct SystemProxyCommand {
                 guard let prefs = SCPreferencesCreate(nil, applicationName, nil) else { throw ProxyFailure.readFailed }
                 result = try readSnapshot(prefs)
             case ["write"]:
-                try commitChanges(readRequest())
+                try commitChanges(readRequest(), requestingPID: requestingPID)
                 result = ["ok": true]
             default:
                 throw ProxyFailure.invalidRequest

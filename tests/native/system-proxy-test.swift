@@ -29,9 +29,73 @@ private func encoded(_ changes: [[String: Any]], location: String? = nil) throws
     return try JSONSerialization.data(withJSONObject: request)
 }
 
+private func readPreferences(_ file: URL) throws -> SCPreferences {
+    guard let prefs = SCPreferencesCreate(nil, appName, file.path as CFString) else {
+        throw ProxyFailure.readFailed
+    }
+    return prefs
+}
+
+private func startFixtureProcess(_ role: String, _ directory: URL) throws -> Process {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: CommandLine.arguments[0])
+    process.arguments = [role, directory.path]
+    try process.run()
+    return process
+}
+
+private struct FixtureTimeout: Error {}
+
+private func waitFor<Value>(_ probe: () -> Value?) throws -> Value {
+    let deadline = DispatchTime.now() + .seconds(10)
+    repeat {
+        if let value = probe() { return value }
+        Thread.sleep(forTimeInterval: 0.01)
+    } while DispatchTime.now() < deadline
+    throw FixtureTimeout()
+}
+
+private func writeAfterParentExit(_ directory: URL) throws {
+    let requestingPID = getppid()
+    require(requestingPID > 1, "fixture helper must start with a live parent")
+    let request = try parseChanges(Data(contentsOf: directory.appendingPathComponent("request.json")))
+    let prefs = try readPreferences(directory.appendingPathComponent("isolated-preferences.plist"))
+    try Data().write(to: directory.appendingPathComponent("ready"), options: .atomic)
+    _ = try waitFor { getppid() == 1 ? true : nil }
+
+    let outcome: String
+    do {
+        try stageChanges(request, prefs, requestingPID: requestingPID)
+        outcome = "staged"
+    } catch let failure as ProxyFailure {
+        outcome = failure.rawValue
+    }
+    let snapshot = try readSnapshot(prefs)
+    let services = snapshot["services"] as? [[String: Any]]
+    let service = services?.first { $0["id"] as? String == first }
+    let configuration = service?["configuration"] as? [String: Any]
+    let port = configuration?["HTTPPort"] as? Int ?? -1
+    try Data("\(outcome) \(port)".utf8).write(to: directory.appendingPathComponent("outcome"), options: .atomic)
+}
+
 @main
 struct IsolatedSystemProxyTest {
     static func main() throws {
+        if CommandLine.arguments.count == 3 {
+            let directory = URL(fileURLWithPath: CommandLine.arguments[2])
+            switch CommandLine.arguments[1] {
+            case "write-parent":
+                let writer = try startFixtureProcess("write-child", directory)
+                writer.waitUntilExit()
+                return
+            case "write-child":
+                try writeAfterParentExit(directory)
+                return
+            default:
+                break
+            }
+        }
+        let requestingPID = getppid()
         let state: [String: Any] = ["enabled": true, "configuration": ["HTTPPort": 8888]]
         let valid: [String: Any] = ["id": first, "expected": state, "next": state]
         require(try parseChanges(encoded([valid])).changes.count == 1, "valid change rejected")
@@ -82,12 +146,7 @@ struct IsolatedSystemProxyTest {
             ],
         ]
         try PropertyListSerialization.data(fromPropertyList: fixture, format: .binary, options: 0).write(to: file)
-        func preferences() throws -> SCPreferences {
-            guard let prefs = SCPreferencesCreate(nil, appName, file.path as CFString) else {
-                throw ProxyFailure.readFailed
-            }
-            return prefs
-        }
+        func preferences() throws -> SCPreferences { try readPreferences(file) }
         // SCPreferencesLock for an unauthenticated session requires root even
         // for a custom path. Exercise the actual protocol setters after CAS,
         // exporting their staged values to the fixture without lock/commit/apply.
@@ -116,16 +175,25 @@ struct IsolatedSystemProxyTest {
         next["HTTPPort"] = 8899
         let nextState: [String: Any] = ["enabled": false, "configuration": next]
         let firstChange = ["id": first, "expected": beforeState, "next": nextState] as [String: Any]
-        let install = try parseChanges(encoded([firstChange], location: currentSet))
+        let installData = try encoded([firstChange], location: currentSet)
+        let install = try parseChanges(installData)
+        try installData.write(to: folder.appendingPathComponent("request.json"))
+        let writerParent = try startFixtureProcess("write-parent", folder)
+        defer { if writerParent.isRunning { writerParent.terminate() } }
+        _ = try waitFor { FileManager.default.fileExists(atPath: folder.appendingPathComponent("ready").path) ? true : nil }
+        require(kill(writerParent.processIdentifier, SIGKILL) == 0, "fixture parent could not be killed")
+        writerParent.waitUntilExit()
+        let orphanOutcome = try waitFor { try? String(contentsOf: folder.appendingPathComponent("outcome"), encoding: .utf8) }
+        require(orphanOutcome == "requesterExited 8080", "orphaned helper entered write stage: \(orphanOutcome)")
         let staleLocation = try parseChanges(encoded([firstChange], location: oldSet))
-        try rejects(.conflict) { try stageChanges(staleLocation, preferences()) }
+        try rejects(.conflict) { try stageChanges(staleLocation, preferences(), requestingPID: requestingPID) }
         let secondState = ["enabled": before[1]["enabled"]!, "configuration": before[1]["configuration"]!]
         let inactive = try parseChanges(encoded([["id": second, "expected": secondState, "next": nextState]], location: currentSet))
-        try rejects(.conflict) { try stageChanges(inactive, preferences()) }
+        try rejects(.conflict) { try stageChanges(inactive, preferences(), requestingPID: requestingPID) }
         let missing = try parseChanges(encoded([["id": first, "expected": beforeState, "next": nextState],
                                                 ["id": "missing", "expected": beforeState, "next": nextState]]))
         let missingSession = try preferences()
-        try rejects(.conflict) { try stageChanges(missing, missingSession) }
+        try rejects(.conflict) { try stageChanges(missing, missingSession, requestingPID: requestingPID) }
         require((try read(missingSession)[0]["configuration"] as? [String: Any])?["HTTPPort"] as? Int == 8080,
                 "missing service allowed a partial update")
         let externalSession = try preferences()
@@ -136,19 +204,19 @@ struct IsolatedSystemProxyTest {
         var externalConfig = original
         externalConfig["ExceptionsList"] = ["updated.invalid"]
         require(SCNetworkProtocolSetConfiguration(externalProto, externalConfig as CFDictionary), "fixture external edit failed")
-        try rejects(.conflict) { try stageChanges(install, externalSession) }
+        try rejects(.conflict) { try stageChanges(install, externalSession, requestingPID: requestingPID) }
         let installSession = try preferences()
-        try stageChanges(install, installSession)
+        try stageChanges(install, installSession, requestingPID: requestingPID)
         try persistFixture(installSession)
         let installed = try read()[0]
         require(installed["enabled"] as? Bool == false, "protocol flag was not stored")
         require((installed["configuration"] as? [String: Any])?["HTTPPort"] as? Int == 8899, "port was not stored")
-        try rejects(.conflict) { try stageChanges(install, preferences()) }
+        try rejects(.conflict) { try stageChanges(install, preferences(), requestingPID: requestingPID) }
         let restore = try parseChanges(encoded([["id": first, "expected": nextState, "next": beforeState]]))
         let restoreSession = try preferences()
         guard let anotherLocation = SCNetworkSetCopy(restoreSession, oldSet as CFString) else { throw ProxyFailure.readFailed }
         require(SCNetworkSetSetCurrent(anotherLocation), "fixture location switch failed")
-        try stageChanges(restore, restoreSession)
+        try stageChanges(restore, restoreSession, requestingPID: requestingPID)
         try persistFixture(restoreSession)
 
         let restored = try preferences()

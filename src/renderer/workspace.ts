@@ -260,7 +260,6 @@ export function useWorkspace() {
       }, value => { body = value; });
       return body;
     },
-    openWhistle: () => void run('正在打开 Whistle', api => api.openWhistle()),
     openDataFolder: () => void run('正在打开数据目录', api => api.openDataFolder()),
   };
 }

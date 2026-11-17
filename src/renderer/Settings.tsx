@@ -1,4 +1,4 @@
-import { Download, ExternalLink, FolderOpen, RefreshCw, Unplug } from 'lucide-react';
+import { Download, FolderOpen, RefreshCw, Unplug } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { timeLabel } from './model';
 import { Button, Dialog, Notice, Switch } from './ui';
@@ -10,7 +10,7 @@ export function Settings({ workspace, close, restore, dataOnly }: {
   const {
     status, statusError, busy, commandError, clearCommandError, notice, clearNotice, data,
     refresh, start, testConnection, connectionTest, exportCertificate,
-    enableMultiSelect, enableRules, openWhistle, openDataFolder,
+    enableMultiSelect, enableRules, openDataFolder,
     importBackup, exportBackup,
     systemProxy, systemProxyError, setSystemProxy, releaseSystemProxy,
   } = workspace;
@@ -42,14 +42,11 @@ export function Settings({ workspace, close, restore, dataOnly }: {
         </>}>
           <Button onClick={() => void refresh()} disabled={!!busy}><RefreshCw size={14} aria-hidden="true" /> 刷新</Button>
           {(statusError || status && !status.running) && <Button onClick={start} disabled={!!busy}>重试启动</Button>}
-          {status?.running && status.address && !statusError && <Button onClick={openWhistle} disabled={!!busy}>
-            <ExternalLink size={14} aria-hidden="true" /> 打开 Whistle
-          </Button>}
         </Setting>
         <Setting name="HTTPS 根证书" value={<>
           <span>在 macOS 上双击导出的 .crt 文件，添加到「登录」钥匙串。打开证书的「信任」选项，选择「始终信任」，然后重启浏览器。</span>
           {status?.running && status.httpsEnabled !== undefined && <span>
-            Whistle 的 HTTPS 解密{status.httpsEnabled ? '已开启' : '未开启，请在 Whistle 中开启'}。证书信任状态请在钥匙串访问中确认。
+            Whistle 的 HTTPS 解密{status.httpsEnabled ? '已开启' : '未开启'}。证书信任状态请在钥匙串访问中确认。
           </span>}
         </>}>
           <Button onClick={exportCertificate} disabled={!status?.running || !!statusError || !!busy}>

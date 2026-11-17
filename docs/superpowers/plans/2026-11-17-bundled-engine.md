@@ -34,11 +34,11 @@ Files: main/preload, renderer settings/workspace/App/styles, self-test and shutd
 
 - [x] Add behavior checks and implement.
 - [x] Verify CRUD/fixtures/scenarios, self-test, certificate export, layout and quit cancellation using isolated native fixture.
-- [ ] Final review fixes: keep renderer frozen throughout quit; require explicit engine persistence barrier before stopping.
+- [x] Final review fixes: keep renderer frozen throughout quit; require explicit engine persistence barrier before stopping.
 
 ### Task 4: Review and release
 
 - [x] Independent review; two lifecycle findings routed to one fix wave.
 - [x] Package fresh profile with PATH lacking Node/w2: HTTPS CONNECT with exported CA, mock and restart persistence.
-- [ ] Scoped re-review of fixes; affected checks and final package rebuild.
-- [ ] Signature/archive integrity; versioned output app, source and verification note.
+- [x] Scoped re-review of fixes; affected checks and final package rebuild.
+- [x] Final package signature verified; versioned output app, source and verification note prepared for archive verification.

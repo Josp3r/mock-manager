@@ -1,34 +1,44 @@
 # Bundled engine implementation plan
 
-> Use subagent-driven-development for isolated tasks and root integration.
-
 **Goal:** Ship a desktop that starts its own npm Whistle without global Node/w2.
-**Architecture:** Private Electron utility process, narrow authenticated HTTP API, mode-aware sync controller, existing reversible native system proxy.
+**Architecture:** Private Electron utility process, authenticated HTTP API, existing rule synchronization and reversible native system proxy.
 **Tech Stack:** Electron 45, Whistle 2.10.15, React, TypeScript.
 **Spec:** docs/superpowers/specs/2026-11-17-bundled-engine-design.md
 
 ## Global Constraints
-Loopback only; independent profile data/plugins/CA; preserve external mode for legacy profiles; never kill external w2; no real system proxy or trust changes during tests; preserve own-rule and journal guards.
+
+All users use builtin only, per the user's explicit correction. Loopback only; independent profile data/plugins/CA; never discover, modify, or stop external w2. No real system proxy or trust changes during tests. Preserve own-rule and journal guards.
 
 ## Review Focus
-Port collision must not attach to another proxy. Switching after interrupted sync must not strand active rules. Quit after restore failure must keep engine alive. Fresh packaged profile must need no external Node/w2. Certificate export must only expose public certificate.
 
-### Task 1: Mode-aware persisted model and sync
-Files: src/shared/types.ts, src/core/model.ts, src/main/sync.ts, tests/core.test.ts, tests/sync.test.ts. Interfaces: EngineMode='builtin'|'external'; optional settings.engineMode (normalized legacy external); fresh builtin; ConnectionStatus.engineMode optional; bridge setEngineMode(mode):Promise<ApplyResult>, testConnection():Promise<{ok:boolean;message:string}>, exportCertificate():Promise<boolean>. Access selector string '@builtin' routes builtin; original w2Path stays external. Controller.setEngineMode serializes recovery/unselect/ownership validation before persistence; snapshots remain for explicit restore. updateW2Path preserves settings. Test defaults/migration, stale renderer cannot set mode, active own rule deactivation, pending/conflict/offline refusal, and selector identity.
-- [ ] Add focused failing tests, implement, run suite/typecheck, commit.
+Port collision must not attach to another proxy. Migration must preserve projects without replaying external pending writes. Quit after restoration or persistence failure must keep the engine alive. Fresh packaged profile must need no external Node/w2. Certificate export exposes only the public certificate.
+
+### Task 1: Persisted model and migration
+
+Files: shared/types, core/model, main/sync/store and relevant tests. All settings normalize builtin; old projects and snapshots remain available. Legacy interrupted sync journals are archived locally. Controller always selects the builtin adapter. Remove external mode/path selection from bridge. Add certificate export, proxy self-test, and quit coordination interfaces.
+
+- [x] Test fresh/legacy data, stale renderer saves, journal migration and absence of external access.
+- [x] Implement and verify migration with existing synchronization suite.
 
 ### Task 2: Embedded engine and packaging
-Files: new src/main/embedded-whistle.ts, src/main/whistle-worker.cjs, scripts/build-electron.mjs, package.json/package-lock.json, new engine tests/script. Interfaces: EmbeddedWhistle implements WhistleAccess; constructor(dataRoot:string, workerPath:string); start, find, resolve, endpoint, stop():Promise<void>, certificate():Promise<Buffer>. EngineRouter(builtin,external) implements WhistleAccess routes '@builtin'. Main starts only after Electron ready. Worker/manager isolate data, loopback + persisted port and authenticated API. No external global binary. Include npm dependencies and worker in packaged app. Test actual lifecycle and mock/management behavior with isolated profiles; port collision explicit failure. Root owns main.ts/preload.ts integration.
-- [ ] Verify source options, tests before implementation, implement, actual Electron smoke, commit.
 
-### Task 3: Desktop integration and onboarding
-Files: main.ts/preload.ts, renderer Settings/workspace/App/styles, new proxy self-test and quit coordinator tests. Connect mode switching to restored system proxy; automatic builtin startup; quit waits for restoration and keeps process on failure. Settings actionable setup steps and public certificate export; self-test not misrepresented as browser/TLS test. Existing external paths work.
-- [ ] Add behavior checks; implement; build and run desktop scenarios with fixture native proxy only.
+Files: embedded-whistle.ts, whistle-worker.cjs, build-electron.mjs, package/lock and real engine test. Electron utilityProcess owns an authenticated loopback listener, private data/certificate directory and persisted port. Bundle pinned npm runtime modules and assets. Explicit startup, stop and public certificate APIs. No external runtime discovery.
+
+- [x] Verify source options; implement engine and actual Electron smoke.
+- [x] Cover collision, management authentication, mock, certificate, persistence and parent crash cleanup.
+- [x] Include dependencies and worker in the locally signed package.
+
+### Task 3: Desktop onboarding and lifecycle
+
+Files: main/preload, renderer settings/workspace/App/styles, self-test and shutdown coordinator. Start builtin automatically. Settings show readiness/retry, macOS certificate export instructions, system proxy and narrowly described HTTP transport self-test. Window close keeps engine; actual quit flushes drafts, restores owned proxy, then stops engine. Failures keep application usable.
+
+- [x] Add behavior checks and implement.
+- [x] Verify CRUD/fixtures/scenarios, self-test, certificate export, layout and quit cancellation using isolated native fixture.
+- [ ] Final review fixes: keep renderer frozen throughout quit; require explicit engine persistence barrier before stopping.
 
 ### Task 4: Review and release
-- [ ] Independent final review and focused fixes.
-- [ ] Unit suite/typecheck/build, existing real isolated proxy integration, desktop regressions, packaged PATH-sanitized builtin scenario, bundle/signature/archive checks.
-- [ ] README/versioned output delivery and git clean source snapshot.
 
-## User correction (binding, supersedes conflicting task text)
-All profiles use builtin; remove external connection/mode UI and chooseW2/setEngineMode bridge. Core task implements local migration and legacy pending journal archival; no external side effects. Engine task needs no router. Desktop always starts builtin; existing external-mode test scripts will be adapted for their new scope.
+- [x] Independent review; two lifecycle findings routed to one fix wave.
+- [x] Package fresh profile with PATH lacking Node/w2: HTTPS CONNECT with exported CA, mock and restart persistence.
+- [ ] Scoped re-review of fixes; affected checks and final package rebuild.
+- [ ] Signature/archive integrity; versioned output app, source and verification note.

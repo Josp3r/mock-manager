@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { link, lstat, mkdir, open, rename, rm } from 'node:fs/promises';
@@ -66,7 +67,7 @@ async function getFile(path: string, maxSize: number): Promise<Buffer> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = await file.stat();
-    if (!info.isFile() || info.size > maxSize) throw new InvalidFile('文件格式或大小无效');
+    if (!info.isFile() || info.size > maxSize) throw new InvalidFile(t("文件格式或大小无效", "Invalid file format or size"));
     return await file.readFile();
   } finally {
     await file.close();
@@ -93,7 +94,7 @@ async function readMetadata(path: string): Promise<Stored> {
 
 function metadataBytes(data: AppData): string {
   const content = JSON.stringify(data, null, 2) + '\n';
-  if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error('本地配置超过 32 MiB');
+  if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error(t("本地配置超过 32 MiB", "The local configuration exceeds 32 MiB"));
   return content;
 }
 
@@ -128,7 +129,7 @@ function cloneImported(project: Project): Project {
 
 class InvalidFixture extends Error {
   constructor(path: string, detail: string) {
-    super(`响应文件（fixture）${detail}：${path}`);
+    super(t('响应文件（fixture）{detail}：{path}', 'Response file (fixture) {detail}: {path}', { detail, path }));
   }
 }
 
@@ -137,7 +138,7 @@ async function fixtureMatches(path: string, expected: Buffer): Promise<boolean> 
     return expected.equals(await getFile(path, expected.length));
   } catch (error) {
     if (isError(error, 'ENOENT')) return false;
-    if (error instanceof InvalidFile || isError(error, 'ELOOP')) throw new InvalidFixture(path, '校验失败');
+    if (error instanceof InvalidFile || isError(error, 'ELOOP')) throw new InvalidFixture(path, t("校验失败", "failed validation"));
     throw error;
   }
 }
@@ -174,7 +175,7 @@ export class DataStore {
       await putFile(this.primary, metadataBytes(recovery.data), true);
       return recovery.data;
     }
-    if (primary.broken || recovery.broken) throw new Error('本地配置损坏且无法从上一版本恢复。原文件已保留。');
+    if (primary.broken || recovery.broken) throw new Error(t("本地配置损坏且无法从上一版本恢复。原文件已保留。", "The local configuration is damaged and cannot be recovered from the previous version. The original files have been preserved."));
     const data = createInitialData();
     const content = metadataBytes(data);
     await putFile(this.recovery, content, true);
@@ -203,7 +204,7 @@ export class DataStore {
       // Use the same validation and serializer as save() before touching Whistle.
       metadataBytes(validateData(next));
       const content = JSON.stringify({ schemaVersion: 2, ...intent });
-      if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error('同步记录超过 32 MiB');
+      if (Buffer.byteLength(content) > MAX_DATA_BYTES) throw new Error(t("同步记录超过 32 MiB", "The sync record exceeds 32 MiB"));
       await putFile(this.pending, content, false);
     });
   }
@@ -222,7 +223,7 @@ export class DataStore {
           (entry.beforeValue === null && entry.beforeSelected) ||
           typeof entry.nextDigest !== 'string' || !/^[0-9a-f]{64}$/.test(entry.nextDigest) ||
           typeof entry.nextAt !== 'string' || !Number.isFinite(Date.parse(entry.nextAt))) {
-          throw new InvalidFile('同步记录格式无效');
+          throw new InvalidFile(t("同步记录格式无效", "Invalid sync record format"));
         }
         if (entry.schemaVersion === 1) {
           // Version 1 belongs to external Whistle and cannot be replayed on the embedded engine.
@@ -233,7 +234,7 @@ export class DataStore {
         return entry as PendingSync;
       } catch (error) {
         if (isError(error, 'ENOENT')) return null;
-        throw new Error('无法读取同步恢复记录。请检查本地数据文件。', { cause: error });
+        throw new Error(t("无法读取同步恢复记录。请检查本地数据文件。", "The sync recovery record could not be read. Check the local data files."), { cause: error });
       }
     });
   }
@@ -260,9 +261,9 @@ export class DataStore {
 
   importBackup(input: unknown): Promise<AppData> {
     return this.enqueue(async () => {
-      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('备份格式无效');
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error(t("备份格式无效", "Invalid backup format"));
       const backup = input as Record<string, unknown>;
-      if (backup.schemaVersion !== 1) throw new Error('不支持的备份版本');
+      if (backup.schemaVersion !== 1) throw new Error(t("不支持的备份版本", "Unsupported backup version"));
       const imported = validateProjects(backup.projects).map(cloneImported);
       const previous = await this.loadData();
       return this.persist({ ...previous, projects: [...previous.projects, ...imported] }, previous);
@@ -288,9 +289,9 @@ export class DataStore {
     if (routes.length) {
       if (action !== 'verify') await mkdir(this.fixtureRoot, { recursive: true, mode: 0o700 });
       try {
-        if (!(await lstat(this.fixtureRoot)).isDirectory()) throw new InvalidFixture(this.fixtureRoot, '目录无效');
+        if (!(await lstat(this.fixtureRoot)).isDirectory()) throw new InvalidFixture(this.fixtureRoot, t("目录无效", "has an invalid directory"));
       } catch (error) {
-        if (isError(error, 'ENOENT')) throw new InvalidFixture(this.fixtureRoot, '目录不存在');
+        if (isError(error, 'ENOENT')) throw new InvalidFixture(this.fixtureRoot, t("目录不存在", "has a missing directory"));
         throw error;
       }
     }
@@ -308,14 +309,14 @@ export class DataStore {
           if (action !== 'repair' || !(error instanceof InvalidFixture)) throw error;
           valid = false;
         }
-        if (!valid && action === 'verify') throw new InvalidFixture(path, '缺失或校验失败');
+        if (!valid && action === 'verify') throw new InvalidFixture(path, t("缺失或校验失败", "is missing or failed validation"));
         if (!valid && action === 'repair') await putFile(path, expected, true);
         if (!valid && action === 'create') {
           try {
             await putFile(path, expected, false);
           } catch (error) {
             if (!isError(error, 'EEXIST')) throw error;
-            if (!(await fixtureMatches(path, expected))) throw new InvalidFixture(path, '已存在但校验失败');
+            if (!(await fixtureMatches(path, expected))) throw new InvalidFixture(path, t("已存在但校验失败", "already exists but failed validation"));
           }
         }
         verified.add(path);
@@ -324,7 +325,7 @@ export class DataStore {
     }
     return (endpointId, scenarioId, body) => {
       const path = files.get(key(endpointId, scenarioId, sha(body)));
-      if (!path) throw new Error('响应文件（fixture）不在当前快照内');
+      if (!path) throw new Error(t("响应文件（fixture）不在当前快照内", "The response file (fixture) is not part of the current snapshot"));
       return path;
     };
   }

@@ -1,6 +1,6 @@
 {
   "name": "mock-manager",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Personal desktop API mock and scenario manager",
   "author": "Mock Manager",
@@ -17,7 +17,8 @@
     "test:desktop": "node scripts/desktop-test.mjs",
     "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs",
     "test:system-proxy:desktop": "node --import tsx scripts/system-proxy-desktop-test.mjs",
-    "test:engine": "node scripts/build-electron.mjs && node scripts/embedded-engine-test.mjs"
+    "test:engine": "node scripts/build-electron.mjs && node scripts/embedded-engine-test.mjs",
+    "test:i18n:desktop": "node scripts/i18n-desktop-test.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -68,6 +69,10 @@
       {
         "from": "THIRD-PARTY-NOTICES.txt",
         "to": "THIRD-PARTY-NOTICES.txt"
+      },
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
       }
     ]
   }

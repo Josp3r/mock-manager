@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { createHash } from 'node:crypto';
 import type { AppData, AppliedSnapshot, ApplyResult, ConnectionStatus } from '../shared/types';
 import { compileRules, configurationHash } from '../core/compiler';
@@ -14,8 +15,8 @@ type Managed = {
 };
 
 const BUILTIN_SELECTOR = '@builtin';
-const EXTERNAL_CONFLICT = '专属规则在 Whistle 中被外部修改。请在 Whistle 中处理冲突后重试。';
-const DIFFERENT_WHISTLE = '上次同步使用了其他 Whistle 路径或代理地址，请连接该实例后处理恢复。';
+const EXTERNAL_CONFLICT = () => t("专属规则在 Whistle 中被外部修改。请在 Whistle 中处理冲突后重试。", "The managed rules were changed outside this app. Resolve the conflict in the proxy engine and try again.");
+const DIFFERENT_WHISTLE = () => t("上次同步使用了其他 Whistle 路径或代理地址，请连接该实例后处理恢复。", "The previous sync used a different proxy engine or address. Connect to that instance before restoring.");
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -26,8 +27,8 @@ function message(error: unknown): string {
 }
 
 function assertActivationAllowed(managed: Managed): void {
-  if (!managed.multiSelect) throw new Error('请先在连接设置中启用多选模式，避免停用你已有的规则。');
-  if (managed.disabled) throw new Error('Whistle 全局规则已关闭，请先在连接设置中启用。');
+  if (!managed.multiSelect) throw new Error(t("请先在连接设置中启用多选模式，避免停用你已有的规则。", "Enable multiple rule selection in Connection settings first to keep existing rules active."));
+  if (managed.disabled) throw new Error(t("Whistle 全局规则已关闭，请先在连接设置中启用。", "Global proxy rules are disabled. Enable them in Connection settings first."));
 }
 
 async function readManaged(api: WhistleApi, name: string): Promise<Managed> {
@@ -35,7 +36,7 @@ async function readManaged(api: WhistleApi, name: string): Promise<Managed> {
   const value = ruleValue(raw)?.value ?? null;
   const selected = status.list.some((record) => record.name === name && record.selected);
   if ((raw && typeof raw !== 'string' && raw.selected !== selected) || (value === null && selected)) {
-    throw new Error('两次 Whistle 规则读取结果不一致，请重试。');
+    throw new Error(t("两次 Whistle 规则读取结果不一致，请重试。", "The proxy returned inconsistent rule states. Try again."));
   }
   return { value, selected, multiSelect: status.multiSelect, disabled: status.disabled };
 }
@@ -99,11 +100,11 @@ export class SyncController {
   private async connect(): Promise<ConnectedWhistle> {
     const { path, api } = await this.access.resolve(BUILTIN_SELECTOR);
     const meta = await api.network.getStatus();
-    if (!compatibleVersion(meta.version)) throw new Error('Whistle 版本过低，请升级至 2.10.7 或更新版本。');
+    if (!compatibleVersion(meta.version)) throw new Error(t("Whistle 版本过低，请升级至 2.10.7 或更新版本。", "The proxy engine requires Whistle 2.10.7 or later."));
     const endpoint = await this.access.endpoint?.(BUILTIN_SELECTOR);
     const port = endpoint?.port ?? meta.port;
     if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error('无法确认 Whistle 的实际代理端口。');
+      throw new Error(t("无法确认 Whistle 的实际代理端口。", "The actual proxy port could not be determined."));
     }
     const host = endpoint?.host?.trim() || WHISTLE_LOOPBACK;
     return { api, path, host, port, address: whistleAddress(host, port), version: meta.version };
@@ -135,16 +136,16 @@ export class SyncController {
       if (intent && !committed(data, intent)) {
         state.syncState = 'conflict';
         if (intent.ruleName !== name || !sameConnection(connection, intent)) {
-          state.error = DIFFERENT_WHISTLE;
+          state.error = DIFFERENT_WHISTLE();
         } else if (!knownPendingValue(view, intent)) {
-          state.error = EXTERNAL_CONFLICT;
+          state.error = EXTERNAL_CONFLICT();
         } else {
           state.canRecover = true;
-          state.error = '上次同步中断。可恢复中断前的规则，或重新应用草稿。';
+          state.error = t("上次同步中断。可恢复中断前的规则，或重新应用草稿。", "The previous sync was interrupted. Restore the previous rules or apply the draft again.");
         }
       } else if (!owned(data, name, view.value)) {
         state.syncState = 'conflict';
-        state.error = EXTERNAL_CONFLICT;
+        state.error = EXTERNAL_CONFLICT();
       } else {
         state.canRecover = !!data.lastApplied && view.multiSelect && !view.disabled;
         if (view.value === null || !view.selected || view.disabled || !data.lastApplied) state.syncState = 'disabled';
@@ -154,7 +155,7 @@ export class SyncController {
             state.syncState = data.lastApplied.hash === configurationHash(data.projects) ? 'synced' : 'pending';
           } catch {
             state.syncState = 'conflict';
-            state.error = '已应用的响应文件缺失或被修改，请恢复上次应用。';
+            state.error = t("已应用的响应文件缺失或被修改，请恢复上次应用。", "Applied response files are missing or changed. Restore the last applied configuration.");
           }
         }
       }
@@ -167,7 +168,7 @@ export class SyncController {
   private async stopSelected(api: WhistleApi, name: string): Promise<Managed> {
     await api.rules.unselect(name);
     const stopped = await readManaged(api, name);
-    if (stopped.selected) throw new Error('Whistle 未确认停止专属规则。');
+    if (stopped.selected) throw new Error(t("Whistle 未确认停止专属规则。", "The proxy engine did not confirm that the managed rules were stopped."));
     return stopped;
   }
 
@@ -182,9 +183,9 @@ export class SyncController {
       return view;
     }
     if (intent.ruleName !== name || !sameConnection(connection, intent)) {
-      throw new Error(DIFFERENT_WHISTLE);
+      throw new Error(DIFFERENT_WHISTLE());
     }
-    if (!knownPendingValue(view, intent)) throw new Error(EXTERNAL_CONFLICT);
+    if (!knownPendingValue(view, intent)) throw new Error(EXTERNAL_CONFLICT());
 
     // A missing file or text other than the attempted write does not show that
     // an app write reached Whistle. Preserve current selection in that case.
@@ -194,12 +195,12 @@ export class SyncController {
       if (intent.beforeSelected) {
         if (!view.multiSelect) {
           if (view.selected) await this.stopSelected(api, name);
-          throw new Error('已中断的同步需要先恢复 Whistle 多选模式。');
+          throw new Error(t("已中断的同步需要先恢复 Whistle 多选模式。", "Restore multiple rule selection before recovering the interrupted sync."));
         }
         await api.rules.add(name, intent.beforeValue!, true);
       } else {
         const unselected = view.selected ? await this.stopSelected(api, name) : view;
-        if (!knownPendingValue(unselected, intent)) throw new Error(EXTERNAL_CONFLICT);
+        if (!knownPendingValue(unselected, intent)) throw new Error(EXTERNAL_CONFLICT());
         if (unselected.value !== null) {
           const previous = intent.beforeValue ?? inactiveMarker(name);
           if (unselected.value !== previous) await api.rules.add(name, previous, false);
@@ -208,9 +209,9 @@ export class SyncController {
       restored = await readManaged(api, name);
       if (restored.value !== null &&
         (restored.value !== (intent.beforeValue ?? inactiveMarker(name)) || restored.selected !== intent.beforeSelected)) {
-        throw new Error('Whistle 未确认恢复中断前的规则。');
+        throw new Error(t("Whistle 未确认恢复中断前的规则。", "The proxy engine did not confirm restoration of the previous rules."));
       }
-      if (restored.value === null && intent.beforeSelected) throw new Error('Whistle 未确认恢复中断前的规则。');
+      if (restored.value === null && intent.beforeSelected) throw new Error(t("Whistle 未确认恢复中断前的规则。", "The proxy engine did not confirm restoration of the previous rules."));
     }
     await this.store.clearSync();
     return restored;
@@ -240,7 +241,7 @@ export class SyncController {
       const current = await readManaged(api, name);
       assertActivationAllowed(current);
       if (current.value !== before.value || current.selected !== before.selected) {
-        throw new Error('专属规则在同步前发生变化，请刷新状态后重试。');
+        throw new Error(t("专属规则在同步前发生变化，请刷新状态后重试。", "The managed rules changed before syncing. Refresh their status and try again."));
       }
       attempted = true;
       // The Whistle API adds and selects in one call. Read both back before
@@ -248,7 +249,7 @@ export class SyncController {
       await api.rules.add(name, snapshot.rules, true);
       const verify = await readManaged(api, name);
       if (verify.value !== snapshot.rules || !verify.selected || !verify.multiSelect || verify.disabled) {
-        throw new Error('Whistle 未确认专属规则生效，请检查多选模式和全局规则。');
+        throw new Error(t("Whistle 未确认专属规则生效，请检查多选模式和全局规则。", "The proxy engine did not confirm rule activation. Check multiple rule selection and global rules."));
       }
       saved = await this.store.save(next);
     } catch (error) {
@@ -266,7 +267,7 @@ export class SyncController {
           await this.recoverInterrupted(previous, connection);
         }
       } catch (recoveryError) {
-        throw new Error(message(error) + '。同步中断，恢复尚未完成：' + message(recoveryError), { cause: error });
+        throw new Error(t('{error}。同步中断，恢复尚未完成：{recoveryError}', '{error}. Sync was interrupted and recovery is incomplete: {recoveryError}', { error: message(error), recoveryError: message(recoveryError) }), { cause: error });
       }
       throw error;
     }
@@ -294,7 +295,7 @@ export class SyncController {
       const connection = await this.connect();
       const before = await this.recoverInterrupted(data, connection);
       assertActivationAllowed(before);
-      if (!owned(data, this.ruleName(data), before.value)) throw new Error(EXTERNAL_CONFLICT);
+      if (!owned(data, this.ruleName(data), before.value)) throw new Error(EXTERNAL_CONFLICT());
       const fixture = await this.store.writeFixtures(data);
       const lastApplied = this.snapshot(data, compileRules(data, fixture));
       return this.applyTransition(data, { ...data, lastApplied }, connection, before);
@@ -311,7 +312,7 @@ export class SyncController {
       if (view.selected) {
         const knownAttempt = intent && intent.ruleName === name && !committed(data, intent)
           && sameConnection(connection, intent) && knownPendingValue(view, intent);
-        if (!knownAttempt && !owned(data, name, view.value)) throw new Error(EXTERNAL_CONFLICT);
+        if (!knownAttempt && !owned(data, name, view.value)) throw new Error(EXTERNAL_CONFLICT());
         await this.stopSelected(connection.api, name);
       }
       return this.statusNow();
@@ -325,10 +326,10 @@ export class SyncController {
       const intent = await this.store.pendingSync();
       const before = await this.recoverInterrupted(data, connection);
       const name = this.ruleName(data);
-      if (!owned(data, name, before.value)) throw new Error(EXTERNAL_CONFLICT);
+      if (!owned(data, name, before.value)) throw new Error(EXTERNAL_CONFLICT());
       if (!data.lastApplied) {
         if (intent) return { data, status: await this.statusNow() };
-        throw new Error('还没有可以恢复的已应用配置。');
+        throw new Error(t("还没有可以恢复的已应用配置。", "There is no applied configuration to restore."));
       }
       assertActivationAllowed(before);
       const recovery = { ...data, projects: data.lastApplied.projects };

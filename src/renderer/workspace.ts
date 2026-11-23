@@ -1,8 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppData, ConnectionStatus, DesktopBridge, Project, SystemProxyStatus } from '../shared/types';
 import { maxResponseLength } from './model';
+import { t } from '../shared/i18n';
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'error';
+
+// Stable operation IDs stay separate from their displayed translations.
+const busyTranslations: Record<string, string> = {
+  '正在应用': 'Applying changes',
+  '正在停用': 'Stopping Mock',
+  '正在恢复': 'Restoring rules',
+  '正在启动本地代理引擎': 'Starting local proxy engine',
+  '正在发送代理测试请求': 'Sending proxy test request',
+  '正在导出根证书': 'Exporting root certificate',
+  '正在开启多选': 'Enabling multiple rule sets',
+  '正在启用规则': 'Enabling rules',
+  '正在设置系统代理，请完成系统授权': 'Setting system proxy; approve the system prompt',
+  '正在恢复原代理，请完成系统授权': 'Restoring previous proxy; approve the system prompt',
+  '正在保留当前设置': 'Keeping current settings',
+  '正在导入备份': 'Importing backup',
+  '正在导出备份': 'Exporting backup',
+  '正在导入 JSON': 'Importing JSON',
+  '正在打开数据目录': 'Opening data folder',
+};
+
+// Store notice keys so existing notices update when the display language changes.
+const noticeTranslations: Record<string, string> = {
+  '根证书已导出。请在钥匙串访问中安装并信任它。': 'Root certificate exported. Install and trust it in Keychain Access.',
+  '已取消导出根证书。': 'Certificate export cancelled.',
+  '已将系统 HTTP/HTTPS 代理指向本地代理引擎。': 'System HTTP/HTTPS proxy now points to the local engine.',
+  '已恢复开启前的系统代理设置。': 'Previous system proxy settings restored.',
+  '已保留当前系统设置并结束接管。原配置备份仍保存在应用数据目录。': 'Current system settings kept. The app no longer manages them; the previous configuration backup remains in the app data folder.',
+  '已导入备份。导入的接口默认停用。': 'Backup imported. Imported endpoints are disabled by default.',
+  '备份已导出。': 'Backup exported.',
+};
 
 export function messageFrom(error: unknown) {
   if (!(error instanceof Error)) return String(error);
@@ -48,7 +79,7 @@ export function useWorkspace() {
   const load = useCallback(async () => {
     setLoadError('');
     if (!bridge) {
-      setLoadError('请在 Mock Manager 桌面应用中打开工作台。');
+      setLoadError(t('请在 Mock Manager 桌面应用中打开工作台。', 'Open this workspace in the Mock Manager desktop app.'));
       return;
     }
     try {
@@ -203,8 +234,8 @@ export function useWorkspace() {
 
   return {
     data, loadError, load, status, statusError, systemProxy, systemProxyError, refresh, saveState, saveError, flush,
-    busy, commandError, clearCommandError: () => setCommandError(''),
-    notice, clearNotice: () => setNotice(''), edit, editProject,
+    busy, busyLabel: t(busy, busyTranslations[busy] ?? busy), commandError, clearCommandError: () => setCommandError(''),
+    notice: t(notice, noticeTranslations[notice] ?? notice), clearNotice: () => setNotice(''), edit, editProject,
     apply: () => void run('正在应用', api => api.apply(), value => {
       accept(value.data);
       receiveStatus(value.status);
@@ -233,13 +264,13 @@ export function useWorkspace() {
         setSystemProxyStatus(value);
         setSystemProxyError('');
         if (value.state === 'error' || !value.supported || (enabled ? value.state !== 'on' : value.managed)) {
-          setCommandError(value.message || '系统代理设置未完成，请检查状态后重试。');
+          setCommandError(value.message || t('系统代理设置未完成，请检查状态后重试。', 'System proxy setup is incomplete. Check its status and try again.'));
         } else setNotice(enabled ? '已将系统 HTTP/HTTPS 代理指向本地代理引擎。' : '已恢复开启前的系统代理设置。');
       }),
     releaseSystemProxy: () => void run('正在保留当前设置', api => api.releaseSystemProxy(), value => {
       setSystemProxyStatus(value);
       setSystemProxyError('');
-      if (value.managed || value.state === 'error') setCommandError(value.message || '系统代理状态已变化，请刷新后重试。');
+      if (value.managed || value.state === 'error') setCommandError(value.message || t('系统代理状态已变化，请刷新后重试。', 'System proxy status changed. Refresh and try again.'));
       else setNotice('已保留当前系统设置并结束接管。原配置备份仍保存在应用数据目录。');
     }),
     importBackup: () => void run('正在导入备份', api => api.importBackup(), value => {
@@ -256,7 +287,7 @@ export function useWorkspace() {
       let body: string | null = null;
       await run('正在导入 JSON', async api => {
         const value = await api.importResponse();
-        if (value && value.length > maxResponseLength) throw new Error('响应正文最多可以包含 200 万个字符。');
+        if (value && value.length > maxResponseLength) throw new Error(t('响应正文最多可以包含 200 万个字符。', 'The response body can contain up to 2 million characters.'));
         return value;
       }, value => { body = value; });
       return body;

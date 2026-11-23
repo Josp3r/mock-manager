@@ -1,65 +1,122 @@
 # Mock Manager
 
-个人桌面 API Mock 管理器，内置本地代理引擎。业务继续请求正式域名，由本地代理返回选定的 JSON 场景。
+[简体中文](README.zh-CN.md) · [Source](https://github.com/Josp3r/mock-manager) · [Issues](https://github.com/Josp3r/mock-manager/issues)
 
-## 打开应用
+A local desktop API mock manager for frontend development. Keep your original request URLs and switch between success, empty, error, and delayed responses without changing application code.
 
-解压 `Mock-Manager-0.1.3-mac-arm64.zip`，双击 `Mock Manager.app`，或拖入“应用程序”。需要 macOS Apple Silicon；成品无需安装 Node.js、npm、w2 或开发工具。
+Mock Manager organizes **projects → endpoints → response scenarios**. A bundled local proxy serves the selected JSON response for matching requests; other requests continue to their original destination. Your browser or application must route requests through that proxy.
 
-这是本地 ad-hoc 签名的构建，尚未进行 Apple 开发者签名和公证。若首次打开被阻止，在 Finder 中按住 Control 点击并选择“打开”，或通过“系统设置 → 隐私与安全性”允许打开；无需关闭系统安全设置。
+![Mock Manager in English](docs/i18n/workbench-en.png)
 
-## 第一次使用
+*English interface with local test data. Existing project names and JSON content keep their original language when the interface language changes.*
 
-1. 打开应用，内置引擎自动启动。点击左侧“设置”查看运行状态、版本和地址。
-2. HTTPS 接口：点击“导出根证书”，双击 .crt 添加到 macOS「登录」钥匙串；打开证书，在「信任」中选择「始终信任」，然后重启浏览器。内置引擎首次启动已开启 HTTPS 解密；证书信任需手动完成。
-3. 在顶栏或设置中开启“系统代理”。浏览器应使用系统代理，代理扩展可切为系统模式或停用。也可以按界面地址手动配置浏览器。
-4. 点击“测试连接”，验证本地 HTTP 请求经过内置代理。此测试不代表浏览器路由或 HTTPS 证书信任已配置。
-5. 新建项目、接口，填写完整 URL 和 HTTP 方法，编辑成功、空数据、报错等响应场景。
-6. 选择场景，启用接口，点击“应用更改”，再刷新目标页面。
+## What it does
 
-初始示例使用 `api.example.test`，所有接口默认关闭。“已同步”表示规则已写入并通过读回验证，实际请求仍需经过正确代理。
+- Manage endpoints and multiple response scenarios in one desktop workspace.
+- Match the original HTTP/HTTPS URL and method, with optional query/header conditions.
+- Configure JSON bodies, status codes, response headers, and delays.
+- Enable individual endpoints or restore a project's saved preset.
+- Save drafts automatically and apply them explicitly when ready.
+- Manage the macOS system proxy and restore its previous settings when disabled or when the app quits.
+- Keep projects, drafts, and response bodies in local application storage. No account is required.
 
-## 日常管理
+The current packaged target is **macOS on Apple Silicon**. A packaged app includes its proxy engine and does not require Node.js, npm, or a separate `w2` installation. See [Build from source](#build-from-source) to create the app.
 
-- 编辑自动保存为草稿，点击应用才改变代理响应。无效 JSON 草稿可以保存，但无法应用。
-- URL 按协议、域名、端口、路径和方法精确匹配。URL 中的 Query 会转为条件；多个 Query/Header 等值条件必须全部满足。
-- 支持 HTTP 状态码 200–599、0–60,000 ms 延迟、自定义响应头和项目预设。不包含请求体匹配、脚本执行及云同步。
-- 总开关只停用本应用的规则。删除或停用单接口后需要重新应用。
-- 关闭 macOS 窗口后引擎继续运行。真正退出应用（⌘Q）时先保存草稿、恢复本应用接管前的系统代理，再停止引擎。恢复被取消或遇到冲突时，应用保持运行。
-- 下次启动沿用已应用规则，系统代理需重新开启。异常退出时会保留代理恢复记录；再次启动后可恢复。
-- “恢复专属规则”恢复上次成功应用的规则和响应文件，保留当前草稿。不要手工编辑内置引擎规则或已应用的响应文件。
-- 项目备份只包含项目、接口和场景。导入创建新项目并重新分配 ID，接口默认停用；证书、代理状态不进入备份。
+## First use
 
-默认数据目录是 `~/Library/Application Support/Whistle Mock Manager/`，包含草稿、恢复副本、JSON fixtures 和 `proxy-engine/`。可通过“打开数据目录”定位。
+1. Open **Mock Manager.app**. Its local engine starts automatically. Open **Settings** to view the engine address and status.
+2. For HTTPS requests, select **Export certificate**. On macOS, open the exported `.crt`, add it to the **login** keychain, open its **Trust** settings, and select **Always Trust**. Restart the browser afterward. HTTPS decryption is enabled in the bundled engine; certificate trust is a separate manual step.
+3. Turn on **System proxy** in the topbar or Settings. Your browser must use the system proxy; configure proxy extensions accordingly. You can also configure a client manually with the address shown in Settings.
+4. Select **Test connection** to verify a local HTTP request through the bundled proxy. This test does not verify browser routing or HTTPS certificate trust.
+5. Create a project and an endpoint. Enter the full original URL and HTTP method, then configure response scenarios.
+6. Select a scenario, enable the endpoint, and click **Apply changes**. Refresh the page that calls the endpoint.
 
-## 系统代理
+The initial example uses `api.example.test`, with all endpoints disabled. **Applied** means that the rules were written and verified by reading them back; requests still need to reach the proxy.
 
-开启时保存当前网络位置的代理配置，将 HTTP/HTTPS 指向内置引擎，临时关闭 PAC、自动发现及 SOCKS，保留绕过列表。macOS 可能要求授权。关闭开关或退出应用时恢复原配置；即使引擎停止也可恢复。
+For a local ad-hoc signed build, macOS may require you to allow the app under **System Settings → Privacy & Security** or use Finder's **Open** action. These builds are not Apple-notarized. Do not disable system security settings.
 
-如果其他程序修改了这些设置，恢复会停止并提示，避免覆盖外部修改。可处理冲突后重试，或选择“保留当前设置 → 确认保留”结束接管；后者不修改系统设置，原配置备份仍保留。含 HTTP/HTTPS 认证元数据的原代理暂不接管。
+## Language
 
-系统代理只影响遵循系统设置的应用。停用 Mock 规则与系统代理开关相互独立。应用不读取或写入钥匙串密码，也不自动信任根证书。
+Open **Settings → Language** and choose **System default**, **简体中文**, or **English**. The choice takes effect immediately and is remembered across restarts. System mode uses a supported language from the system's preferred-language list, with English as the fallback.
 
-## 从旧版本升级
+Language preferences are separate from mock data. Switching the interface language does not rename your projects, endpoints, or scenarios, change JSON content, or apply pending rules. New sample data and default scenario names use the active language when they are created.
 
-0.1.3 更名为 Mock Manager，采用冷白与钴蓝配色，增加顶栏系统代理开关和列表接口开关。保留原数据目录、应用标识及代理恢复记录，已有项目与内置引擎证书可继续使用。菜单“帮助 → 开源许可证”可查看第三方声明。
+<details>
+<summary>View language settings</summary>
 
-所有用户统一使用内置引擎，旧 w2 连接不再读取。项目、接口、场景、草稿和上次应用快照保留；旧版中断同步记录仅在本地归档。外部 Whistle 进程和规则不会被改动。
+![Language settings in English](docs/i18n/settings-en.png)
 
-退出旧版桌面应用后再打开新版，避免单实例锁将启动请求交给旧版。升级后重新应用草稿，或手动恢复上次快照。内置证书和端口与外部 Whistle 不同，需要按指南重新配置。若系统代理仍指向旧地址，先关闭开关恢复，再重新开启。
+</details>
 
-已分配的内置端口若被其他程序占用，界面会显示错误。释放占用后点击“重试启动”；应用不会接管未知服务。
+## Daily workflow
 
-## 从源码运行与验证
+Edits are saved as drafts. **Apply changes** is what updates proxy responses. Invalid JSON can be kept as a draft but cannot be applied. Disabling or deleting an endpoint also requires Apply. **Disable mocks** stops only the rules managed by this app; it is independent of the system-proxy switch.
 
-开发推荐 Node.js 22.12+；编译 Swift 系统代理助手需要 Xcode Command Line Tools。
+A project preset captures endpoint enabled states and selected scenarios. Loading a preset changes the draft and still requires Apply. Backup export includes projects, endpoints, scenarios, and presets. Import creates new IDs and disables imported endpoints; it does not import certificates or system-proxy state.
+
+Closing the macOS window leaves the engine running. Quitting the app with **⌘Q** saves pending drafts, restores the system proxy if the app manages it, and then stops the engine. If restoration is cancelled or conflicts with external changes, the app stays open. Previously applied rules remain available after restarting; turn the system proxy on again when needed.
+
+## Matching and limits
+
+| Supported | Current behavior |
+|---|---|
+| Request matching | Exact scheme, host, port, path, and HTTP method |
+| Query and headers | Equality conditions; all conditions must match |
+| Responses | JSON body, custom headers, status codes 200–599 |
+| Delay | 0–60,000 ms per scenario |
+| Organization | Projects, modules, endpoints, scenarios, presets, JSON backups |
+| Platform | Packaged macOS Apple Silicon app; system-proxy control is macOS-only |
+
+Query parameters pasted into the endpoint URL become query conditions. Path placeholders such as `:id`, wildcard/regex URL matching, request-body matching, response scripts, and cloud sync are not currently supported by the interface.
+
+## System proxy and recovery
+
+When enabled, the app saves the current network location's proxy configuration, points HTTP and HTTPS to its local engine, temporarily disables PAC, auto-discovery, and SOCKS, and preserves the bypass list. macOS may request authorization. Turning the switch off or quitting restores the original configuration, including when the local engine has stopped.
+
+If another program changes those settings, restoration pauses rather than overwriting the external change. Resolve the conflict and retry, or choose **Keep current settings → Confirm keep** to stop managing the proxy without changing its current settings. The saved original configuration is retained. Existing HTTP/HTTPS proxy configurations containing authentication metadata are not currently supported for takeover.
+
+The system proxy affects only applications that follow system proxy settings. The app does not read or write keychain passwords or automatically trust its root certificate.
+
+**Restore managed rules** restores the last successfully applied rules and response files while keeping the current draft. Pending changes still need Apply. Do not manually edit the bundled engine's managed rules or applied response files.
+
+The default data directory is:
+
+```text
+~/Library/Application Support/Whistle Mock Manager/
+```
+
+The legacy folder name is intentionally retained for upgrade compatibility. It contains drafts, recovery files, response fixtures, language preferences, and the private engine's `proxy-engine/` directory. Use **Open data folder** in Settings to find it. After an abnormal exit, proxy recovery information remains available on the next launch.
+
+## Upgrading
+
+Quit an older version before launching the new app so the single-instance lock does not hand the launch back to the old version. Version 0.1.4 keeps the existing app identity and data directory and adds language selection; existing projects and bundled-engine certificates continue to work.
+
+All users use the bundled engine. Older external `w2` connections are no longer read; external Whistle processes and rules are left alone. When upgrading from an external-engine version, reapply your draft or restore the last snapshot, and configure the new bundled-engine certificate and address. If the system proxy still points to an old address, turn it off to restore the previous configuration before turning it on again.
+
+If another process occupies the assigned local port, free that port and select **Retry start**. The app does not take over an unknown service.
+
+## Build from source
+
+Use Node.js **22.12+** and npm. Building the macOS system-proxy helper also requires **Xcode Command Line Tools**.
 
 ```sh
+git clone https://github.com/Josp3r/mock-manager.git
+cd mock-manager
 npm ci --legacy-peer-deps
 npm run dev
 ```
 
-`--legacy-peer-deps` 用于绕过 npm 10 处理测试工具可选 peer 依赖的错误；版本由锁文件固定。
+The lockfile fixes dependency versions. `--legacy-peer-deps` avoids an npm 10 optional peer-dependency resolution issue in the test toolchain.
+
+Build a local macOS Apple Silicon app:
+
+```sh
+npm run package:mac
+```
+
+The app is written to `release/mac-arm64/Mock Manager.app`. The packaging script applies and verifies a local ad-hoc signature; it does not perform Apple Developer ID signing or notarization.
+
+## Verification
 
 ```sh
 npm test
@@ -69,13 +126,18 @@ npm run test:integration
 npm run test:engine
 npm run test:desktop
 npm run test:system-proxy:desktop
+npm run test:i18n:desktop
 node --import tsx scripts/design-preview.mjs
 npm run package:mac
 node scripts/packaged-test.mjs
 ```
 
-代理集成测试使用固定版本的 npm Whistle 和本地假后端，不访问正式接口。桌面测试使用隔离数据目录；系统代理测试通过独立助手进程模拟系统设置，不改变真实代理或证书信任。
+Proxy integration tests use the pinned Whistle version and a local test backend, not production endpoints. Desktop tests use isolated data directories. System-proxy interaction tests use a fixture helper rather than changing real OS proxy settings or certificate trust. The packaged-app test uses the real native helper for read-only status checks.
 
-开发时 `MOCK_MANAGER_DATA_DIR=/absolute/path` 可指定测试数据目录，`MOCK_MANAGER_PROXY_HELPER` 可覆盖测试助手。打包成品忽略这两个测试变量；可用 Electron 的 `--user-data-dir=<绝对路径>` 建立隔离配置。
+During development, `MOCK_MANAGER_DATA_DIR=/absolute/path` selects an isolated data directory and `MOCK_MANAGER_PROXY_HELPER` overrides the proxy helper for tests. Packaged apps ignore those overrides; use Electron's `--user-data-dir=<absolute-path>` argument for an isolated packaged profile.
 
-技术：Electron、React、TypeScript、Vite。Whistle npm 包在 Electron utility process 中运行，使用独立数据、证书和固定端口，仅监听 `127.0.0.1`。管理请求带每次启动生成的认证密钥。引擎使用 Whistle 2.10.15（MIT 许可）；原始许可证及声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，依赖包许可证保留在成品中。[Whistle 模块文档](https://wproxy.org/docs/extensions/npm.html)。
+## Implementation and license
+
+Built with Electron, React, TypeScript, and Vite. The bundled Whistle **2.10.15** npm package runs in an Electron utility process with separate storage, certificates, and a persistent local port. It listens only on `127.0.0.1`; management requests use a new authentication key on each launch.
+
+Mock Manager is available under the [MIT license](LICENSE). Whistle also uses MIT; its original license and attribution are included in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) and accessible through **Help → Open-source licenses** in the app. Dependency license files are retained in packaged builds.

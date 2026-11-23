@@ -1,3 +1,4 @@
+import type { LanguagePreference, LanguageSettings } from './i18n';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
 export interface Condition { key: string; value: string }
 export interface Scenario { id: string; name: string; body: string; status: number; delay: number; headers: Record<string, string> }
@@ -25,6 +26,8 @@ export interface SystemProxyStatus {
   message?: string;
 }
 export interface DesktopBridge {
+  getLanguage(): Promise<LanguageSettings>;
+  setLanguage(preference: LanguagePreference): Promise<LanguageSettings>;
   load(): Promise<AppData>;
   save(data: AppData): Promise<AppData>;
   status(): Promise<ConnectionStatus>;

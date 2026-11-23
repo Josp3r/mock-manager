@@ -8,6 +8,7 @@ import { createInitialData } from '../src/core/model.ts';
 
 await mkdir('test-results', { recursive: true });
 const root = await mkdtemp(resolve('test-results/system-proxy-desktop-'));
+await writeFile(join(root, 'preferences.json'), JSON.stringify({language:'zh-CN'}));
 let proxy;
 const data = createInitialData();
 await writeFile(join(root, 'data.json'), JSON.stringify(data));

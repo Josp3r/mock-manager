@@ -8,7 +8,8 @@ import { X509Certificate } from 'node:crypto';
 await mkdir('test-results',{recursive:true});
 const testRoot=await mkdtemp(resolve('test-results/desktop-'));
 const dataDir=join(testRoot,'fresh','profile');
-await assert.rejects(stat(dataDir), { code:'ENOENT' });
+await mkdir(dataDir, {recursive:true});
+await writeFile(join(dataDir,'preferences.json'), JSON.stringify({language:'zh-CN'}));
 const env={...process.env,MOCK_MANAGER_DATA_DIR:dataDir,WHISTLE_PATH:join(dataDir,'whistle-config')};
 delete env.ELECTRON_RUN_AS_NODE;
 const launch=()=>electron.launch({args:['.'],cwd:process.cwd(),env});
@@ -24,7 +25,7 @@ const errors=[];
 try {
   let page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
   assert.equal(await app.evaluate(({app})=>app.getPath('userData')),dataDir);
-  assert.ok((await stat(dataDir)).isDirectory(),'first launch creates the nested profile directory');
+  assert.ok((await stat(dataDir)).isDirectory(),'isolated profile remains available');
   await page.getByRole('button',{name:'新建项目',exact:true}).waitFor();
   await page.locator('.project-description').filter({hasText:'仅用于演示。示例域名 api.example.test'}).waitFor();
   for (const [width,height] of [[1440,940],[1080,720]]) {

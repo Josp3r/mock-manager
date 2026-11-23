@@ -13,6 +13,8 @@ import { SyncController } from './sync';
 import { SystemProxyController } from './system-proxy';
 import { NativeSystemProxy } from './native-system-proxy';
 import { resolveDataPath } from './data-path';
+import { PreferenceStore } from './preferences';
+import { setLocale, t, type LanguageSettings } from '../shared/i18n';
 
 // Keep the established storage/single-instance identity across the display rename.
 // Read Electron's explicit profile before changing the name so isolated launches stay isolated.
@@ -28,6 +30,8 @@ app.setPath('userData', dataRoot);
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 let window: BrowserWindow | null = null;
+const preferences = new PreferenceStore(dataRoot);
+let languageSettings: LanguageSettings = { preference: 'system', locale: 'zh-CN' };
 const engine = new EmbeddedWhistle(dataRoot, join(__dirname, 'whistle-worker.cjs'));
 const controller = new SyncController(new DataStore(dataRoot), engine);
 let shutdownInProgress = false;
@@ -42,19 +46,27 @@ const trustedUrl = devUrl ? new URL(devUrl).href : pathToFileURL(rendererPath).h
 function handle(channel: string, fn: (...args: any[]) => Promise<unknown>) {
   ipcMain.handle(`manager:${channel}`, async (event, ...args) => {
     if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url.split('#')[0] !== trustedUrl) {
-      throw new Error('拒绝未知窗口的请求。');
+      throw new Error(t("拒绝未知窗口的请求。", "Request from an unknown window was rejected."));
     }
-    if (shutdownInProgress) throw new Error('正在恢复系统代理并退出，请稍候。');
+    if (shutdownInProgress) throw new Error(t("正在恢复系统代理并退出，请稍候。", "Restoring the system proxy and quitting. Please wait."));
     return fn(...args);
   });
 }
 async function readSelectedJson(): Promise<string | null> {
-  const {canceled, filePaths} = await dialog.showOpenDialog(window!, {properties:['openFile'], filters:[{name:'JSON 文件',extensions:['json']}]});
+  const {canceled, filePaths} = await dialog.showOpenDialog(window!, {properties:['openFile'], filters:[{name:t("JSON 文件", "JSON files"),extensions:['json']}]});
   if (canceled || !filePaths[0]) return null;
-  if ((await stat(filePaths[0])).size > MAX_DATA_BYTES) throw new Error('文件超过 32 MiB，请先精简响应或拆分备份。');
+  if ((await stat(filePaths[0])).size > MAX_DATA_BYTES) throw new Error(t("文件超过 32 MiB，请先精简响应或拆分备份。", "The file exceeds 32 MiB. Reduce the response size or split the backup."));
   const text = await readFile(filePaths[0], 'utf8'); JSON.parse(text); return text;
 }
 function setupIpc() {
+  handle('getLanguage', async () => languageSettings);
+  handle('setLanguage', async (value: unknown) => {
+    const next = await preferences.setLanguage(value, app.getPreferredSystemLanguages());
+    languageSettings = next;
+    setLocale(next.locale);
+    updateMenu();
+    return next;
+  });
   handle('load', () => controller.load());
   handle('save', (data: AppData) => controller.saveDraft(data));
   handle('status', () => controller.status());
@@ -66,24 +78,24 @@ function setupIpc() {
   handle('enableRules', () => controller.enableRules());
   handle('systemProxyStatus', () => systemProxy.status());
   handle('setSystemProxy', async (enabled: unknown) => {
-    if (typeof enabled !== 'boolean') throw new Error('系统代理参数无效。');
+    if (typeof enabled !== 'boolean') throw new Error(t("系统代理参数无效。", "Invalid system proxy parameter."));
     if (!enabled) return systemProxy.disable();
     const status = await controller.status();
-    if (!status.running || !status.address || !status.port) throw new Error('请先启动本地代理引擎，再开启系统代理。');
+    if (!status.running || !status.address || !status.port) throw new Error(t("请先启动本地代理引擎，再开启系统代理。", "Start the local proxy engine before enabling the system proxy."));
     const host = new URL(`http://${status.address}/`).hostname.replace(/^\[|\]$/g, '');
     return systemProxy.enable({ host, port: status.port });
   });
   handle('releaseSystemProxy', () => systemProxy.release());
   handle('testConnection', async () => {
     const status = await controller.status();
-    if (!status.running || !status.host || !status.port) throw new Error('请先启动本地代理引擎。');
+    if (!status.running || !status.host || !status.port) throw new Error(t("请先启动本地代理引擎。", "Start the local proxy engine first."));
     return testProxyConnection(status.host, status.port);
   });
   handle('exportCertificate', async () => {
     const certificate = await engine.certificate();
     const {canceled, filePath} = await dialog.showSaveDialog(window!, {
-      title: '导出 HTTPS 根证书', defaultPath: 'Mock-Manager-Root-CA.crt',
-      filters: [{name: '公开证书', extensions: ['crt']}],
+      title: t("导出 HTTPS 根证书", "Export HTTPS root certificate"), defaultPath: 'Mock-Manager-Root-CA.crt',
+      filters: [{name: t("公开证书", "Public certificate"), extensions: ['crt']}],
     });
     if (canceled || !filePath) return false;
     await writeFile(filePath, certificate, {mode: 0o600});
@@ -99,7 +111,7 @@ function setupIpc() {
     const backup = await controller.exportBackup();
     let content = JSON.stringify(backup,null,2);
     if (Buffer.byteLength(content)>MAX_DATA_BYTES) content=JSON.stringify(backup);
-    if (Buffer.byteLength(content)>MAX_DATA_BYTES) throw new Error('备份超过 32 MiB，请先拆分项目。');
+    if (Buffer.byteLength(content)>MAX_DATA_BYTES) throw new Error(t("备份超过 32 MiB，请先拆分项目。", "The backup exceeds 32 MiB. Split the projects first."));
     await writeFile(filePath, content, {encoding:'utf8',mode:0o600}); return true;
   });
   handle('openDataFolder', async () => { await mkdir(dataRoot,{recursive:true}); const error = await shell.openPath(dataRoot); if (error) throw new Error(error); });
@@ -135,9 +147,9 @@ function prepareRendererQuit(): Promise<void> {
           || event.senderFrame.url.split('#')[0] !== trustedUrl || !result || typeof result !== 'object') return;
       const reply = result as {id?: unknown; ok?: unknown; error?: unknown};
       if (reply.id !== id) return;
-      finish(reply.ok === true ? undefined : new Error(typeof reply.error === 'string' ? reply.error.slice(0, 2000) : '草稿保存未完成。'));
+      finish(reply.ok === true ? undefined : new Error(typeof reply.error === 'string' ? reply.error.slice(0, 2000) : t("草稿保存未完成。", "The draft has not finished saving.")));
     };
-    const timeout = setTimeout(() => finish(new Error('等待草稿保存超时，请稍后重试退出。')), 15_000);
+    const timeout = setTimeout(() => finish(new Error(t("等待草稿保存超时，请稍后重试退出。", "Saving the draft timed out. Try quitting again."))), 15_000);
     ipcMain.on('manager:preparedQuit', receive);
     target.once('closed', closed);
     target.webContents.send('manager:prepareQuit', id);
@@ -147,8 +159,36 @@ async function openThirdPartyNotices() {
   const path = join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'THIRD-PARTY-NOTICES.txt');
   const error = await shell.openPath(path);
   if (error) await dialog.showMessageBox({
-    type: 'error', title: '无法打开开源许可证', message: '许可证文件暂时无法打开', detail: error,
+    type: 'error', title: t("无法打开开源许可证", "Unable to open open-source licenses"), message: t("许可证文件暂时无法打开", "The license file could not be opened"), detail: error,
   });
+}
+function updateMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: app.name, submenu: [
+      { role: 'about', label: t('关于 Mock Manager', 'About Mock Manager') },
+      { label: t('开源许可证', 'Open-source licenses'), click: () => { void openThirdPartyNotices(); } },
+      { type: 'separator' },
+      { role: 'hide', label: t('隐藏 Mock Manager', 'Hide Mock Manager') },
+      { role: 'hideOthers', label: t('隐藏其他应用', 'Hide Others') },
+      { role: 'unhide', label: t('显示全部', 'Show All') },
+      { type: 'separator' },
+      { role: 'quit', label: t('退出 Mock Manager', 'Quit Mock Manager') },
+    ] },
+    { label: t('编辑', 'Edit'), submenu: [
+      { role: 'undo', label: t('撤销', 'Undo') }, { role: 'redo', label: t('重做', 'Redo') },
+      { type: 'separator' }, { role: 'cut', label: t('剪切', 'Cut') },
+      { role: 'copy', label: t('复制', 'Copy') }, { role: 'paste', label: t('粘贴', 'Paste') },
+      { role: 'selectAll', label: t('全选', 'Select All') },
+    ] },
+    { label: t('窗口', 'Window'), submenu: [
+      { role: 'minimize', label: t('最小化', 'Minimize') }, { role: 'zoom', label: t('缩放', 'Zoom') },
+      { role: 'front', label: t('前置全部窗口', 'Bring All to Front') },
+    ] },
+    { label: t('帮助', 'Help'), submenu: [
+      { label: t('HTTPS 配置文档', 'HTTPS setup guide'), click: () => { void shell.openExternal('https://wproxy.org/docs/gui/https.html'); } },
+      { label: t('开源许可证', 'Open-source licenses'), click: () => { void openThirdPartyNotices(); } },
+    ] },
+  ]));
 }
 if (gotLock) {
   let quitPermitted = false;
@@ -172,22 +212,18 @@ if (gotLock) {
         if (!window) createWindow();
         window?.webContents.send('manager:quitCancelled');
         window?.show();
-        await dialog.showMessageBox(window!, {type: 'error', title: '暂时无法退出',
-          message: '应用与内置代理将保持运行',
-          detail: (error instanceof Error ? error.message : String(error)) + '\n请在连接设置中处理后再退出。', buttons: ['返回应用']});
+        await dialog.showMessageBox(window!, {type: 'error', title: t("暂时无法退出", "Unable to quit"),
+          message: t("应用与内置代理将保持运行", "The app and local proxy will keep running"),
+          detail: (error instanceof Error ? error.message : String(error)) + '\n' + t('请在连接设置中处理后再退出。', 'Resolve the issue in Connection settings before quitting.'), buttons: [t("返回应用", "Return to app")]});
       }
     })();
   });
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    languageSettings = await preferences.load(app.getPreferredSystemLanguages());
+    setLocale(languageSettings.locale);
     setupIpc();
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {label:app.name, submenu:[{role:'about'},{label:'开源许可证', click:() => { void openThirdPartyNotices(); }},{type:'separator'},{role:'hide'},{role:'hideOthers'},{role:'unhide'},{type:'separator'},{role:'quit'}]},
-      {label:'编辑', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},
-      {label:'窗口', submenu:[{role:'minimize'},{role:'zoom'},{role:'front'}]},
-      {label:'帮助', submenu:[{label:'HTTPS 配置文档', click:() => { void shell.openExternal('https://wproxy.org/docs/gui/https.html'); }},
-        {label:'开源许可证', click:() => { void openThirdPartyNotices(); }}]}
-    ]));
+    updateMenu();
     void controller.startWhistle().catch(() => { /* Connection status exposes startup errors with retry. */ });
     createWindow();
     app.on('activate', () => { if (!window) createWindow(); });

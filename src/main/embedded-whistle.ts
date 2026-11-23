@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { randomBytes, randomUUID, X509Certificate } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
@@ -23,9 +24,25 @@ type ReadyEngine = {
   certificate(): Promise<Buffer>;
 };
 
+type WorkerError = { errorCode?: unknown; error?: unknown };
+
+function workerErrorMessage(message: WorkerError): string {
+  // The worker carries stable app error codes; external diagnostics stay intact.
+  switch (message.errorCode) {
+    case 'MM_CONFIG_DIRECTORY':
+      return t('内置 Whistle 缺少独立配置目录。', 'The bundled proxy engine is missing its isolated configuration directory.');
+    case 'MM_STORAGE_VERSION':
+      return t('内置 Whistle 版本与规则保存适配器不兼容。', 'The bundled proxy version is incompatible with the rule storage adapter.');
+    case 'MM_STORAGE_TIMEOUT':
+      return t('等待内置 Whistle 保存规则超时，请稍后重试退出。', 'Timed out waiting for the bundled proxy engine to save rules. Try quitting again later.');
+    default:
+      return typeof message.error === 'string' ? message.error : t('未知错误', 'Unknown error');
+  }
+}
+
 function managementClient(port: number, authKey: string, isActive: () => boolean) {
   async function call(route: string, body?: string, contentType = 'application/json'): Promise<Buffer> {
-    if (!isActive()) throw new Error('内置 Whistle 未运行。');
+    if (!isActive()) throw new Error(t("内置 Whistle 未运行。", "The bundled proxy engine is not running."));
     return new Promise((resolve, reject) => {
       const req = request({
         hostname: WHISTLE_LOOPBACK,
@@ -47,18 +64,18 @@ function managementClient(port: number, authKey: string, isActive: () => boolean
         res.on('data', (chunk: Buffer) => {
           length += chunk.length;
           if (length > MAX_RESPONSE_BYTES) {
-            req.destroy(new Error('内置 Whistle 返回的数据过大。'));
+            req.destroy(new Error(t("内置 Whistle 返回的数据过大。", "The bundled proxy engine returned too much data.")));
             return;
           }
           chunks.push(chunk);
         });
         res.on('end', () => {
-          if (!isActive()) reject(new Error('内置 Whistle 已停止。'));
-          else if (res.statusCode !== 200) reject(new Error(`内置 Whistle 管理请求失败（HTTP ${res.statusCode}）。`));
+          if (!isActive()) reject(new Error(t("内置 Whistle 已停止。", "The bundled proxy engine has stopped.")));
+          else if (res.statusCode !== 200) reject(new Error(t('内置 Whistle 管理请求失败（HTTP {status}）。', 'The bundled proxy management request failed (HTTP {status}).', { status: res.statusCode ?? 0 })));
           else resolve(Buffer.concat(chunks, length));
         });
       });
-      req.setTimeout(REQUEST_TIMEOUT, () => req.destroy(new Error('内置 Whistle 管理请求超时。')));
+      req.setTimeout(REQUEST_TIMEOUT, () => req.destroy(new Error(t("内置 Whistle 管理请求超时。", "The bundled proxy management request timed out."))));
       req.on('error', reject);
       req.end(body);
     });
@@ -71,19 +88,19 @@ function managementClient(port: number, authKey: string, isActive: () => boolean
   async function command(route: string, fields: Record<string, unknown>, form = false) {
     const data = form ? new URLSearchParams(fields as Record<string, string>).toString() : JSON.stringify(fields);
     const {ec} = await json<{ec: number}>(route, data, form ? 'application/x-www-form-urlencoded' : undefined);
-    if (ec !== 0 && ec !== 2) throw new Error(`内置 Whistle 管理命令失败（${ec}）。`);
+    if (ec !== 0 && ec !== 2) throw new Error(t('内置 Whistle 管理命令失败（{code}）。', 'The bundled proxy management command failed ({code}).', { code: ec }));
     return ec === 0;
   }
 
   async function update(route: string, fields: Record<string, unknown>, form = false) {
-    if (!await command(route, fields, form)) throw new Error('内置 Whistle 拒绝了规则修改。');
+    if (!await command(route, fields, form)) throw new Error(t("内置 Whistle 拒绝了规则修改。", "The bundled proxy engine rejected the rule change."));
   }
 
   const api: WhistleApi = {
     network: {
       async getStatus() {
         const {version} = await json<{version: string}>('status');
-        if (typeof version !== 'string') throw new Error('内置 Whistle 返回了无效的版本。');
+        if (typeof version !== 'string') throw new Error(t("内置 Whistle 返回了无效的版本。", "The bundled proxy engine returned an invalid version."));
         return {version, port};
       },
     },
@@ -120,7 +137,7 @@ function managementClient(port: number, authKey: string, isActive: () => boolean
     api,
     async certificate() {
       const cert = new X509Certificate(await call('rootca?type=crt'));
-      if (!cert.ca) throw new Error('内置 Whistle 返回了无效的根证书。');
+      if (!cert.ca) throw new Error(t("内置 Whistle 返回了无效的根证书。", "The bundled proxy engine returned an invalid root certificate."));
       return Buffer.from(cert.toString());
     },
   };
@@ -159,7 +176,7 @@ export class EmbeddedWhistle implements WhistleAccess {
   }
 
   private running(): ReadyEngine {
-    if (!this.ready || this.stopping) throw this.lastError ?? new Error('内置 Whistle 未运行。');
+    if (!this.ready || this.stopping) throw this.lastError ?? new Error(t("内置 Whistle 未运行。", "The bundled proxy engine is not running."));
     return this.ready;
   }
 
@@ -203,13 +220,13 @@ export class EmbeddedWhistle implements WhistleAccess {
         if (error) reject(error);
         else resolve();
       };
-      const onExit = () => finish(new Error('内置 Whistle 在确认保存规则前退出。'));
-      const receive = (message: {type?: string; id?: string; error?: string}) => {
+      const onExit = () => finish(new Error(t("内置 Whistle 在确认保存规则前退出。", "The bundled proxy engine exited before confirming that rules were saved.")));
+      const receive = (message: WorkerError & {type?: string; id?: string}) => {
         if (message.id !== id) return;
         if (message.type === 'stop-ready') finish();
-        else if (message.type === 'stop-error') finish(new Error('内置 Whistle 未能保存规则：' + message.error));
+        else if (message.type === 'stop-error') finish(new Error(t('内置 Whistle 未能保存规则：{error}', 'The bundled proxy engine could not save rules: {error}', { error: workerErrorMessage(message) })));
       };
-      const timeout = setTimeout(() => finish(new Error('等待内置 Whistle 确认保存规则超时。')), STOP_RESPONSE_TIMEOUT);
+      const timeout = setTimeout(() => finish(new Error(t("等待内置 Whistle 确认保存规则超时。", "Timed out waiting for the bundled proxy engine to confirm that rules were saved."))), STOP_RESPONSE_TIMEOUT);
       child.on('message', receive);
       child.once('exit', onExit);
       child.postMessage({type: 'stop', id});
@@ -226,7 +243,7 @@ export class EmbeddedWhistle implements WhistleAccess {
     try {
       const value = (await readFile(portFile, 'utf8')).trim();
       const port = /^\d+$/.test(value) ? Number(value) : NaN;
-      if (!isPort(port)) throw new Error('内置 Whistle 的端口记录无效。');
+      if (!isPort(port)) throw new Error(t("内置 Whistle 的端口记录无效。", "The saved bundled proxy port is invalid."));
       savedPort = port;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -243,7 +260,7 @@ export class EmbeddedWhistle implements WhistleAccess {
     });
     const exited = new Promise<void>(resolve => child.once('exit', code => {
       if (this.worker?.child === child) {
-        if (this.ready && !this.stopping) this.lastError = new Error(`内置 Whistle 意外退出（${code}）。`);
+        if (this.ready && !this.stopping) this.lastError = new Error(t('内置 Whistle 意外退出（{code}）。', 'The bundled proxy engine exited unexpectedly ({code}).', { code }));
         this.ready = undefined;
         this.worker = undefined;
       }
@@ -255,13 +272,13 @@ export class EmbeddedWhistle implements WhistleAccess {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const port = await new Promise<number>((resolve, reject) => {
-        timeout = setTimeout(() => reject(new Error('内置 Whistle 启动超时。')), START_TIMEOUT);
-        child.once('exit', code => reject(new Error(`内置 Whistle 在启动时退出（${code}）。`)));
-        child.once('error', () => reject(new Error('内置 Whistle 运行时发生错误。')));
-        child.once('message', (message: {type?: string; port?: unknown; error?: string}) => {
-          if (message.type === 'error') reject(new Error(message.error));
+        timeout = setTimeout(() => reject(new Error(t("内置 Whistle 启动超时。", "The bundled proxy engine took too long to start."))), START_TIMEOUT);
+        child.once('exit', code => reject(new Error(t('内置 Whistle 在启动时退出（{code}）。', 'The bundled proxy engine exited during startup ({code}).', { code }))));
+        child.once('error', () => reject(new Error(t("内置 Whistle 运行时发生错误。", "The bundled proxy engine encountered a runtime error."))));
+        child.once('message', (message: WorkerError & {type?: string; port?: unknown}) => {
+          if (message.type === 'error') reject(new Error(workerErrorMessage(message)));
           else if (message.type === 'ready' && isPort(message.port) && (!savedPort || message.port === savedPort)) resolve(message.port);
-          else reject(new Error('内置 Whistle 返回了无效的监听端口。'));
+          else reject(new Error(t("内置 Whistle 返回了无效的监听端口。", "The bundled proxy engine returned an invalid listening port.")));
         });
         child.postMessage({type: 'start', port: savedPort, authKey, username, password});
       });
@@ -276,7 +293,7 @@ export class EmbeddedWhistle implements WhistleAccess {
           await rm(temp, {force: true});
         }
       }
-      if (this.worker !== worker) throw new Error('内置 Whistle 在启动时退出。');
+      if (this.worker !== worker) throw new Error(t("内置 Whistle 在启动时退出。", "The bundled proxy engine exited during startup."));
       this.ready = {port, ...client};
     } catch (error) {
       if (this.worker === worker) child.kill();

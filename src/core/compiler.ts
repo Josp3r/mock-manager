@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { activeRoutes, type ActiveRoute } from './model';
@@ -64,7 +65,7 @@ function headerMismatches(headers: Map<string, string>): string[] {
 }
 
 function fixtureOperator(path: string): string {
-  if (!isAbsolute(path) || !path.startsWith('/') || path.startsWith('//')) throw new Error('响应文件必须使用绝对路径');
+  if (!isAbsolute(path) || !path.startsWith('/') || path.startsWith('//')) throw new Error(t("响应文件必须使用绝对路径", "Response files must use absolute paths"));
   const encoded = path.split('/').map((part) => encodeURIComponent(part).replace(/[!'()*]/g, (char) =>
     '%' + char.charCodeAt(0).toString(16).toUpperCase()
   )).join('/');

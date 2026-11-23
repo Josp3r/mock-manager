@@ -14,6 +14,7 @@ import { createInitialData, validateData } from '../src/core/model.ts';
 const output = resolve('test-results');
 await mkdir(output, { recursive: true });
 const profile = await mkdtemp(join(output, 'design-preview-'));
+await writeFile(join(profile, 'preferences.json'), JSON.stringify({language:'zh-CN'}));
 const fixture = join(profile, 'proxy-fixture.json');
 const helper = resolve('scripts/fixtures/system-proxy-helper.cjs');
 await chmod(helper, 0o700);
@@ -259,7 +260,7 @@ try {
   assert.deepEqual((await readFixture()).snapshot, original, 'quit must restore the entire fixture snapshot');
   checks.push('graceful quit restores original fixture proxy/PAC/SOCKS/bypass configuration');
   result.passed = true;
-  result.version = '0.1.3';
+  result.version = '0.1.4';
   result.engineVersion = engine.version;
   console.log('PASS: design preview, three viewports, draft/apply interactions, HTTPS scenarios, fixture proxy restoration.');
 } catch (error) {

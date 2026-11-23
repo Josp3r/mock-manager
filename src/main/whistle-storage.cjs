@@ -7,7 +7,7 @@ const FLUSH_TIMEOUT = 10_000;
 
 module.exports = function trackStorage() {
   if (require('whistle/package.json').version !== '2.10.15') {
-    throw new Error('内置 Whistle 版本与规则保存适配器不兼容。');
+    throw Object.assign(new Error('The bundled proxy version is incompatible with the rule storage adapter.'), { code: 'MM_STORAGE_VERSION' });
   }
   const storageModule = require.resolve('whistle/lib/rules/storage');
   const Storage = require(storageModule);
@@ -88,7 +88,7 @@ module.exports = function trackStorage() {
       await Promise.race([
         drain(),
         new Promise((_, reject) => {
-          timeout = setTimeout(() => reject(new Error('等待内置 Whistle 保存规则超时，请稍后重试退出。')), FLUSH_TIMEOUT);
+          timeout = setTimeout(() => reject(Object.assign(new Error('Timed out waiting for the bundled proxy engine to save rules. Try quitting again later.'), { code: 'MM_STORAGE_TIMEOUT' })), FLUSH_TIMEOUT);
         }),
       ]);
     } finally {

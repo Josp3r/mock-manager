@@ -1,3 +1,5 @@
+import { NativeSystemProxyError } from './native-system-proxy';
+import { t } from '../shared/i18n';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { link, mkdir, open, rename, rm, unlink } from 'node:fs/promises';
@@ -37,17 +39,17 @@ function record(input: unknown): input is Record<string, unknown> {
 }
 
 function normalizeTarget(input: unknown): ProxyTarget {
-  if (!record(input)) throw new ProxyOperationError('Whistle 的代理地址无效。');
+  if (!record(input)) throw new ProxyOperationError(t("Whistle 的代理地址无效。", "The proxy engine address is invalid."));
   const { host, port } = input;
   if (typeof host !== 'string' || host.length > 254 || typeof port !== 'number'
     || !Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new ProxyOperationError('Whistle 的代理地址无效。');
+    throw new ProxyOperationError(t("Whistle 的代理地址无效。", "The proxy engine address is invalid."));
   }
   const unbracketed = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
   const hostName = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i;
   const hostnameLabels = host.replace(/\.$/, '').split('.');
   if (host !== '*' && !isIP(unbracketed) && !hostnameLabels.every((label) => hostName.test(label))) {
-    throw new ProxyOperationError('Whistle 的代理地址无效。');
+    throw new ProxyOperationError(t("Whistle 的代理地址无效。", "The proxy engine address is invalid."));
   }
   try {
     const address = whistleAddress(host === '*' ? WHISTLE_LOOPBACK : host, port);
@@ -55,7 +57,7 @@ function normalizeTarget(input: unknown): ProxyTarget {
     if (isIP(hostname) === 4 && !isIP(host) && host !== '*') throw new Error('Ambiguous IPv4 address');
     return { host: hostname.replace(/^\[|\]$/g, ''), port };
   } catch {
-    throw new ProxyOperationError('Whistle 的代理地址无效。');
+    throw new ProxyOperationError(t("Whistle 的代理地址无效。", "The proxy engine address is invalid."));
   }
 }
 
@@ -145,10 +147,10 @@ function summarize(snapshot: ProxySnapshot, journal?: Journal): SystemProxyStatu
   const states = matches(snapshot, journal);
   const base = { ...managedDetails(journal), services: states.map(({ name }) => name) };
   if (journal.phase === 'active' && states.every((state) => state.installed)) return { ...base, state: 'on' };
-  let message = '系统代理设置尚未全部应用或恢复。关闭系统代理可恢复之前的配置。';
-  if (states.some((state) => !state.current)) message = '部分网络服务已找不到。恢复备份仍保留。';
+  let message = t("系统代理设置尚未全部应用或恢复。关闭系统代理可恢复之前的配置。", "System proxy settings have not been fully applied or restored. Turn off the system proxy to restore the previous configuration.");
+  if (states.some((state) => !state.current)) message = t("部分网络服务已找不到。恢复备份仍保留。", "Some network services are no longer available. The recovery backup is preserved.");
   else if (states.some((state) => !state.before && !state.installed)) {
-    message = '检测到系统代理设置已在应用外更改。恢复备份仍保留。';
+    message = t("检测到系统代理设置已在应用外更改。恢复备份仍保留。", "System proxy settings were changed outside this app. The recovery backup is preserved.");
   }
   return { ...base, state: 'changed', message };
 }
@@ -173,9 +175,9 @@ export class SystemProxyController {
       const normalized = normalizeTarget(target);
       const snapshot = await this.read();
       const active = snapshot.services.filter(({ active }) => active);
-      if (!active.length) throw new ProxyOperationError('当前网络位置没有可设置代理的服务。');
+      if (!active.length) throw new ProxyOperationError(t("当前网络位置没有可设置代理的服务。", "The current network location has no services that support proxy configuration."));
       if (active.some(({ configuration }) => hasAuthentication(configuration))) {
-        throw new ProxyOperationError('现有 HTTP 或 HTTPS 代理包含认证设置，无法接管。');
+        throw new ProxyOperationError(t("现有 HTTP 或 HTTPS 代理包含认证设置，无法接管。", "The existing HTTP or HTTPS proxy uses authentication and cannot be managed by this app."));
       }
       const before = active.map(({ id, name, enabled, configuration }) => ({ id, name, enabled, configuration }));
       const installed = before.map(({ id, name, ...state }) => ({ id, name, ...installedState(state, normalized) }));
@@ -197,7 +199,7 @@ export class SystemProxyController {
       const states = matches(current, entry);
       if (!states.every((state) => state.installed)) {
         if (states.every((state) => state.before)) await this.removeJournal();
-        throw new ProxyOperationError('无法确认系统代理已开启。');
+        throw new ProxyOperationError(t("无法确认系统代理已开启。", "Could not confirm that the system proxy is enabled."));
       }
       const confirmed: Journal = { ...entry, phase: 'active' };
       await this.saveJournal(confirmed);
@@ -229,7 +231,7 @@ export class SystemProxyController {
       }
       const current = await this.read();
       if (matches(current, journal).some((state) => !state.before)) {
-        throw new ProxyOperationError('无法确认系统代理已恢复。恢复备份仍保留。');
+        throw new ProxyOperationError(t("无法确认系统代理已恢复。恢复备份仍保留。", "Could not confirm restoration of the system proxy. The recovery backup is preserved."));
       }
       await this.removeJournal();
       return summarize(current);
@@ -250,7 +252,7 @@ export class SystemProxyController {
   private run(action: (journal?: Journal) => Promise<SystemProxyStatus>): Promise<SystemProxyStatus> {
     const result = this.tail.then(async (): Promise<SystemProxyStatus> => {
       if (!this.adapter.supported) {
-        return { supported: false, state: 'off', managed: false, services: [], message: '此平台不支持系统代理管理。' };
+        return { supported: false, state: 'off', managed: false, services: [], message: t("此平台不支持系统代理管理。", "System proxy management is not supported on this platform.") };
       }
       try {
         return await action(await this.readJournal());
@@ -261,13 +263,13 @@ export class SystemProxyController {
         } catch {
           return {
             supported: true, state: 'error', managed: true, services: [],
-            message: '无法读取系统代理恢复备份。请检查应用数据目录。',
+            message: t("无法读取系统代理恢复备份。请检查应用数据目录。", "The system proxy recovery backup could not be read. Check the app data folder."),
           };
         }
         return {
           ...(saved ? managedDetails(saved) : { supported: true, managed: false, services: [] }),
           state: 'error',
-          message: error instanceof ProxyOperationError ? error.message : '无法更新系统代理恢复备份。',
+          message: error instanceof ProxyOperationError ? error.message : t("无法更新系统代理恢复备份。", "The system proxy recovery backup could not be updated."),
         };
       }
     });
@@ -279,7 +281,7 @@ export class SystemProxyController {
     try {
       return await this.adapter.read();
     } catch {
-      throw new ProxyOperationError('无法读取系统代理设置。');
+      throw new ProxyOperationError(t("无法读取系统代理设置。", "System proxy settings could not be read."));
     }
   }
 
@@ -288,16 +290,18 @@ export class SystemProxyController {
       await this.adapter.write(changes, location);
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
-      if (message.startsWith('已取消系统代理授权')) {
-        throw new ProxyOperationError('已取消系统代理授权或未获得权限。');
+      // The native adapter exposes stable codes. Keep legacy adapter messages
+      // compatible without using translated display strings as identifiers.
+      if ((error instanceof NativeSystemProxyError && error.code === 'authorization') || message.startsWith('已取消系统代理授权')) {
+        throw new ProxyOperationError(t("已取消系统代理授权或未获得权限。", "System proxy authorization was cancelled or permission was not granted."));
       }
-      if (message.startsWith('系统代理操作超时')) {
-        throw new ProxyOperationError('系统代理操作超时，请检查 macOS 授权窗口后重试。');
+      if ((error instanceof NativeSystemProxyError && error.code === 'timeout') || message.startsWith('系统代理操作超时')) {
+        throw new ProxyOperationError(t("系统代理操作超时，请检查 macOS 授权窗口后重试。", "The system proxy operation timed out. Check the macOS authorization dialog and try again."));
       }
-      if (message.startsWith('macOS 已保存代理设置，但未能应用')) {
-        throw new ProxyOperationError('macOS 已保存代理设置，但未能应用。');
+      if ((error instanceof NativeSystemProxyError && error.code === 'applyFailed') || message.startsWith('macOS 已保存代理设置，但未能应用')) {
+        throw new ProxyOperationError(t("macOS 已保存代理设置，但未能应用。", "macOS saved the proxy settings but could not apply them."));
       }
-      throw new ProxyOperationError('无法写入系统代理设置。');
+      throw new ProxyOperationError(t("无法写入系统代理设置。", "System proxy settings could not be written."));
     }
   }
 

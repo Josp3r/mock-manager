@@ -609,6 +609,7 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 .settings-dialog { width: min(740px, calc(100% - 2 * var(--space-md))); scroll-padding-bottom: 64px; }
 .settings-dialog .dialog__footer { position: sticky; bottom: 0; }
 .settings-body { gap: var(--space-lg); }
+.language-select { min-width: 170px; max-width: 240px; min-height: var(--control); padding: 6px 10px; border: 1px solid var(--color-input-edge); border-radius: var(--radius-input); background: var(--color-blank); font-size: var(--text-sm); }
 .settings-section { display: grid; gap: var(--space-xs); }
 .settings-section > h3 { margin-bottom: var(--space-2xs); font-size: var(--text-lg); }
 .setting {
@@ -641,7 +642,9 @@ input::placeholder, textarea::placeholder { color: var(--color-muted); opacity: 
 
 @media (max-width: 73rem) {
   :root { --sidebar-width: 180px; --requests-width: 288px; }
+  :root:lang(en) { --sidebar-width: 200px; }
   .sidebar { padding-inline: 10px; }
+  :lang(en) .sidebar .nav-row, :lang(en) .sidebar__footer .button { font-size: var(--text-sm); }
   .requests__header { padding-inline: 16px; }
   .topbar__commands { gap: 6px; }
   .topbar { padding-right: 16px; }

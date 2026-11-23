@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 export interface RuleValue { value: string; selected: boolean }
 export interface WhistleApi {
   network: { getStatus(): Promise<{version: string; port?: number}> };
@@ -25,7 +26,7 @@ export function whistleAddress(host: string, port: number): string {
   const authority = ipv6.includes(':') && /^[a-f\d:.]+$/i.test(ipv6) ? `[${ipv6}]`
     : /^[a-z\d._-]+$/i.test(host) ? host : '';
   const hostname = authority && URL.parse(`http://${authority}/`)?.hostname;
-  if (!hostname) throw new Error('无法确认 Whistle 的实际代理地址。');
+  if (!hostname) throw new Error(t("无法确认 Whistle 的实际代理地址。", "The actual proxy address could not be determined."));
   const dialHost = hostname === '[::]' ? '[::1]' : hostname === '0.0.0.0' ? WHISTLE_LOOPBACK : hostname;
   return `${dialHost}:${port}`;
 }

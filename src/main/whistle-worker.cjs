@@ -18,7 +18,7 @@ parent.on('message', ({ data }) => {
       parent.postMessage({ type: 'stop-ready', id: request.id });
     }, error => {
       if (stopRequest !== request) return;
-      parent.postMessage({ type: 'stop-error', id: request.id, error: error.message });
+      parent.postMessage({ type: 'stop-error', id: request.id, errorCode: error.code, error: error.message });
     });
   } else if (data.type === 'exit' && stopRequest?.ready && stopRequest.id === data.id) {
     server.close();
@@ -29,7 +29,9 @@ parent.on('message', ({ data }) => {
 parent.once('close', () => process.exit(0));
 
 async function start({ port, authKey, username, password }) {
-  if (!isAbsolute(process.env.WHISTLE_PATH || '')) throw new Error('内置 Whistle 缺少独立配置目录。');
+  if (!isAbsolute(process.env.WHISTLE_PATH || '')) {
+    throw Object.assign(new Error('The bundled proxy engine is missing its isolated configuration directory.'), { code: 'MM_CONFIG_DIRECTORY' });
+  }
   server.listen(port, '127.0.0.1');
   await once(server, 'listening');
   flushStorage = require('./whistle-storage.cjs')();
@@ -51,6 +53,6 @@ async function start({ port, authKey, username, password }) {
 
 parent.once('message', ({ data }) => {
   start(data).catch(error => {
-    parent.postMessage({ type: 'error', error: error.message });
+    parent.postMessage({ type: 'error', errorCode: error.code, error: error.message });
   });
 });

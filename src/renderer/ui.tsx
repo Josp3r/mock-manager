@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n';
 import { AlertCircle, Check, ChevronRight, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import type { HttpMethod } from '../shared/types';
@@ -24,7 +25,7 @@ export function Notice({ children, close, error = false }: { children: ReactNode
   return <div className={`notice${error ? ' notice--error' : ''}`} role={error ? 'alert' : 'status'}>
     {error ? <AlertCircle size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
     <div className="notice__message">{children}</div>
-    {close && <IconButton label="关闭提示" onClick={close}><X size={14} aria-hidden="true" /></IconButton>}
+    {close && <IconButton label={t('关闭提示', 'Dismiss notification')} onClick={close}><X size={14} aria-hidden="true" /></IconButton>}
   </div>;
 }
 
@@ -84,7 +85,7 @@ export function Dialog({ title, children, close, className = '' }: {
     }}>
     <header className="dialog__header">
       <h2 id={titleId}>{title}</h2>
-      <IconButton label="关闭窗口" onClick={close}><X size={17} aria-hidden="true" /></IconButton>
+      <IconButton label={t('关闭窗口', 'Close window')} onClick={close}><X size={17} aria-hidden="true" /></IconButton>
     </header>
     {children}
   </dialog>;
@@ -108,7 +109,7 @@ export function FormDialog({ spec, close }: { spec: FormSpec; close: () => void 
         {error && <Notice error>{error}</Notice>}
       </div>}
       <footer className="dialog__footer">
-        <Button onClick={close}>取消</Button>
+        <Button onClick={close}>{t('取消', 'Cancel')}</Button>
         <Button type="submit" kind={spec.danger ? 'danger' : 'primary'}>{spec.submit}</Button>
       </footer>
     </form>
@@ -121,6 +122,6 @@ export function readField(form: FormData, name: string) {
 
 export function requiredField(form: FormData, name: string, label: string) {
   const text = readField(form, name);
-  if (!text) throw new Error(`请输入${label}。`);
+  if (!text) throw new Error(t('请输入{label}。', 'Enter {label}.', { label }));
   return text;
 }

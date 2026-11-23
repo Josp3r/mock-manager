@@ -1,8 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { shutdownEngine } from '../src/main/engine-shutdown';
+import { setLocale } from '../src/shared/i18n';
 import type { SystemProxyStatus } from '../src/shared/types';
 const view = (managed: boolean, state: SystemProxyStatus['state'] = managed ? 'on' : 'off'): SystemProxyStatus => ({supported: true, managed, state, services: []});
 describe('engine shutdown', () => {
+  afterEach(() => setLocale('zh-CN'));
+  it('localizes a missing restore error while keeping the engine running', async () => {
+    setLocale('en');
+    let stopped = false;
+    await expect(shutdownEngine({status: async () => view(true), disable: async () => view(true, 'error')},
+      {stop: async () => {stopped = true;}})).rejects.toThrow(/could not restore the system proxy/i);
+    expect(stopped).toBe(false);
+  });
   it('restores owned proxy before stopping the engine', async () => {
     const events: string[] = [];
     await shutdownEngine({status: async () => view(true), disable: async () => {events.push('restore'); return view(false);}},

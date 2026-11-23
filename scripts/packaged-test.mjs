@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 
 await mkdir('test-results', {recursive:true});
 const root=await mkdtemp(resolve('test-results/packaged-builtin-'));
+await writeFile(join(root,'preferences.json'), JSON.stringify({language:'zh-CN'}));
 const bundle=resolve(process.argv[2] || 'release/mac-arm64/Mock Manager.app');
 const env={...process.env,PATH:join(root,'empty-path'),MOCK_MANAGER_DATA_DIR:'/invalid/unpackaged/profile',MOCK_MANAGER_PROXY_HELPER:'/invalid/unpackaged/helper'};
 delete env.ELECTRON_RUN_AS_NODE;
@@ -44,7 +45,7 @@ try {
   assert.equal(await app.evaluate(({app})=>app.getName()),'Mock Manager');
   const notices=await readFile(join(bundle,'Contents/Resources/THIRD-PARTY-NOTICES.txt'),'utf8');
   assert.ok(notices.includes('Whistle 2.10.15') && notices.includes('Copyright (c) 2015 avwo'));
-  assert.deepEqual(info,{packaged:true,version:'0.1.3',root});
+  assert.deepEqual(info,{packaged:true,version:'0.1.4',root});
   let status=await page.evaluate(()=>window.mockManager.status());
   assert.equal(status.version,'2.10.15');assert.equal(status.host,'127.0.0.1');
   const proxy=await page.evaluate(()=>window.mockManager.systemProxyStatus());
@@ -63,12 +64,18 @@ try {
   assert.deepEqual(await httpsMock(status.port,ca),{status:200,body:{packaged:true,data:[1,2,3]}});
   await page.getByRole('button',{name:'连接设置',exact:true}).click();
   await page.screenshot({path:'test-results/packaged-builtin-settings.png'});
+  await page.getByRole('combobox',{name:'语言',exact:true}).selectOption('en');
+  await page.getByRole('heading',{name:'Connection settings',exact:true}).waitFor();
+  assert.equal((await page.evaluate(()=>window.mockManager.getLanguage())).locale,'en');
+  assert.ok((await app.evaluate(({Menu})=>Menu.getApplicationMenu().items.map(item=>item.label))).includes('Edit'));
   const port=status.port;
   await app.close();app=undefined;await unreachable(port);
   app=await launch();page=await app.firstWindow();
   await page.waitForFunction(async()=> (await window.mockManager.status()).running);
+  await page.getByRole('button',{name:'New project',exact:true}).waitFor();
+  assert.equal((await page.evaluate(()=>window.mockManager.getLanguage())).preference,'en');
   status=await page.evaluate(()=>window.mockManager.status());assert.equal(status.port,port);assert.equal(status.syncState,'synced');
   assert.deepEqual(await httpsMock(port,ca),{status:200,body:{packaged:true,data:[1,2,3]}});
-  await writeFile('test-results/packaged-builtin-result.json',JSON.stringify({passed:true,version:info.version,whistle:status.version,isolatedProfile:true,noNodeOrW2InPath:true,ignoredDevOverrides:true,realProxyWrites:false,systemTrustWrites:false,checks:['fresh automatic startup','real packaged native helper read','local HTTP self-test','public CA export','HTTPS CONNECT+CA verification+mock','quit releases port','restart same port/CA/rule']},null,2));
+  await writeFile('test-results/packaged-builtin-result.json',JSON.stringify({passed:true,version:info.version,whistle:status.version,isolatedProfile:true,noNodeOrW2InPath:true,ignoredDevOverrides:true,realProxyWrites:false,systemTrustWrites:false,checks:['fresh automatic startup','real packaged native helper read','local HTTP self-test','public CA export','HTTPS CONNECT+CA verification+mock','quit releases port','restart same port/CA/rule','packaged language switch, menu and restart preference']},null,2));
   console.log('PASS: packaged builtin engine without Node/w2, real HTTPS mock with exported CA, restart persistence, quit cleanup. No OS proxy/trust writes.');
 } finally {await app?.close();}

@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppData, DesktopBridge } from '../shared/types';
 const bridge: DesktopBridge = {
+  getLanguage: () => ipcRenderer.invoke('manager:getLanguage'),
+  setLanguage: preference => ipcRenderer.invoke('manager:setLanguage', preference),
   load: () => ipcRenderer.invoke('manager:load'),
   save: (data: AppData) => ipcRenderer.invoke('manager:save', data),
   status: () => ipcRenderer.invoke('manager:status'),

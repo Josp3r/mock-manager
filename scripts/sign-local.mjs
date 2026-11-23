@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 if(process.platform!=='darwin')throw new Error('Local macOS signing requires macOS.');
-const bundle='release/mac-arm64/Whistle Mock Manager.app';
+const bundle='release/mac-arm64/Mock Manager.app';
 execFileSync('codesign',['--force','--sign','-',`${bundle}/Contents/Resources/system-proxy`],{stdio:'inherit'});
 // Local ad-hoc signing uses no Apple account or keychain identity. It repairs
 // Electron's resource seal after the app and its icon have been packaged.

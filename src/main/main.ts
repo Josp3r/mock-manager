@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { mkdirSync } from 'node:fs';
 import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { join, resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -11,14 +12,22 @@ import { testProxyConnection } from './proxy-self-test';
 import { SyncController } from './sync';
 import { SystemProxyController } from './system-proxy';
 import { NativeSystemProxy } from './native-system-proxy';
+import { resolveDataPath } from './data-path';
 
-app.setName('Whistle Mock Manager');
-const dataOverride = process.env.MOCK_MANAGER_DATA_DIR;
-if (!app.isPackaged && dataOverride && isAbsolute(dataOverride)) app.setPath('userData', dataOverride);
+// Keep the established storage/single-instance identity across the display rename.
+// Read Electron's explicit profile before changing the name so isolated launches stay isolated.
+const dataRoot = resolveDataPath({
+  appData: app.getPath('appData'),
+  packaged: app.isPackaged,
+  commandLineProfile: app.commandLine.hasSwitch('user-data-dir') ? app.getPath('userData') : undefined,
+  developmentProfile: process.env.MOCK_MANAGER_DATA_DIR,
+});
+app.setName('Mock Manager');
+mkdirSync(dataRoot, { recursive: true });
+app.setPath('userData', dataRoot);
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 let window: BrowserWindow | null = null;
-const dataRoot = app.getPath('userData');
 const engine = new EmbeddedWhistle(dataRoot, join(__dirname, 'whistle-worker.cjs'));
 const controller = new SyncController(new DataStore(dataRoot), engine);
 let shutdownInProgress = false;
@@ -60,20 +69,20 @@ function setupIpc() {
     if (typeof enabled !== 'boolean') throw new Error('系统代理参数无效。');
     if (!enabled) return systemProxy.disable();
     const status = await controller.status();
-    if (!status.running || !status.address || !status.port) throw new Error('请先启动并连接 Whistle，再开启系统代理。');
+    if (!status.running || !status.address || !status.port) throw new Error('请先启动本地代理引擎，再开启系统代理。');
     const host = new URL(`http://${status.address}/`).hostname.replace(/^\[|\]$/g, '');
     return systemProxy.enable({ host, port: status.port });
   });
   handle('releaseSystemProxy', () => systemProxy.release());
   handle('testConnection', async () => {
     const status = await controller.status();
-    if (!status.running || !status.host || !status.port) throw new Error('请先启动内置 Whistle。');
+    if (!status.running || !status.host || !status.port) throw new Error('请先启动本地代理引擎。');
     return testProxyConnection(status.host, status.port);
   });
   handle('exportCertificate', async () => {
     const certificate = await engine.certificate();
     const {canceled, filePath} = await dialog.showSaveDialog(window!, {
-      title: '导出内置 Whistle 根证书', defaultPath: 'Mock-Manager-Root-CA.crt',
+      title: '导出 HTTPS 根证书', defaultPath: 'Mock-Manager-Root-CA.crt',
       filters: [{name: '公开证书', extensions: ['crt']}],
     });
     if (canceled || !filePath) return false;
@@ -98,8 +107,8 @@ function setupIpc() {
 function createWindow() {
   window = new BrowserWindow({
     width:1440, height:940, minWidth:1080, minHeight:720,
-    title:'Whistle Mock Manager', titleBarStyle:'hiddenInset', trafficLightPosition:{x:20,y:20},
-    backgroundColor:'#f6f5f1', show:false,
+    title:'Mock Manager', titleBarStyle:'hiddenInset', trafficLightPosition:{x:20,y:20},
+    backgroundColor:'#ffffff', show:false,
     webPreferences:{preload:join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   });
   window.webContents.setWindowOpenHandler(() => ({action:'deny'}));
@@ -134,6 +143,13 @@ function prepareRendererQuit(): Promise<void> {
     target.webContents.send('manager:prepareQuit', id);
   });
 }
+async function openThirdPartyNotices() {
+  const path = join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'THIRD-PARTY-NOTICES.txt');
+  const error = await shell.openPath(path);
+  if (error) await dialog.showMessageBox({
+    type: 'error', title: '无法打开开源许可证', message: '许可证文件暂时无法打开', detail: error,
+  });
+}
 if (gotLock) {
   let quitPermitted = false;
   let preparingQuit = false;
@@ -166,10 +182,11 @@ if (gotLock) {
   void app.whenReady().then(() => {
     setupIpc();
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {label:app.name, submenu:[{role:'about'},{type:'separator'},{role:'hide'},{role:'hideOthers'},{role:'unhide'},{type:'separator'},{role:'quit'}]},
+      {label:app.name, submenu:[{role:'about'},{label:'开源许可证', click:() => { void openThirdPartyNotices(); }},{type:'separator'},{role:'hide'},{role:'hideOthers'},{role:'unhide'},{type:'separator'},{role:'quit'}]},
       {label:'编辑', submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},
       {label:'窗口', submenu:[{role:'minimize'},{role:'zoom'},{role:'front'}]},
-      {label:'帮助', submenu:[{label:'Whistle HTTPS 配置', click:() => { void shell.openExternal('https://wproxy.org/docs/gui/https.html'); }}]}
+      {label:'帮助', submenu:[{label:'HTTPS 配置文档', click:() => { void shell.openExternal('https://wproxy.org/docs/gui/https.html'); }},
+        {label:'开源许可证', click:() => { void openThirdPartyNotices(); }}]}
     ]));
     void controller.startWhistle().catch(() => { /* Connection status exposes startup errors with retry. */ });
     createWindow();

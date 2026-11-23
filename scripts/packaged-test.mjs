@@ -9,10 +9,10 @@ import assert from 'node:assert/strict';
 
 await mkdir('test-results', {recursive:true});
 const root=await mkdtemp(resolve('test-results/packaged-builtin-'));
-const bundle=resolve(process.argv[2] || 'release/mac-arm64/Whistle Mock Manager.app');
+const bundle=resolve(process.argv[2] || 'release/mac-arm64/Mock Manager.app');
 const env={...process.env,PATH:join(root,'empty-path'),MOCK_MANAGER_DATA_DIR:'/invalid/unpackaged/profile',MOCK_MANAGER_PROXY_HELPER:'/invalid/unpackaged/helper'};
 delete env.ELECTRON_RUN_AS_NODE;
-const launch=()=>electron.launch({executablePath:join(bundle,'Contents/MacOS/Whistle Mock Manager'),args:['--user-data-dir='+root],env});
+const launch=()=>electron.launch({executablePath:join(bundle,'Contents/MacOS/Mock Manager'),args:['--user-data-dir='+root],env});
 const unreachable=port=>new Promise((res,rej)=>{
   const req=get({host:'127.0.0.1',port,path:'/',agent:false},r=>{r.resume();rej(new Error('Engine still listening after quit'));});
   req.once('error',err=>err.code==='ECONNREFUSED'?res():rej(err));
@@ -41,7 +41,10 @@ try {
   app=await launch();let page=await app.firstWindow();
   await page.waitForFunction(async()=> (await window.mockManager.status()).running);
   const info=await app.evaluate(({app})=>({packaged:app.isPackaged,version:app.getVersion(),root:app.getPath('userData')}));
-  assert.deepEqual(info,{packaged:true,version:'0.1.2',root});
+  assert.equal(await app.evaluate(({app})=>app.getName()),'Mock Manager');
+  const notices=await readFile(join(bundle,'Contents/Resources/THIRD-PARTY-NOTICES.txt'),'utf8');
+  assert.ok(notices.includes('Whistle 2.10.15') && notices.includes('Copyright (c) 2015 avwo'));
+  assert.deepEqual(info,{packaged:true,version:'0.1.3',root});
   let status=await page.evaluate(()=>window.mockManager.status());
   assert.equal(status.version,'2.10.15');assert.equal(status.host,'127.0.0.1');
   const proxy=await page.evaluate(()=>window.mockManager.systemProxyStatus());

@@ -1,21 +1,21 @@
-# Whistle Mock Manager
+# Mock Manager
 
-内置 Whistle 2.10.15 的个人桌面 Mock 管理器。业务继续请求正式域名，由本地代理返回选定的 JSON 场景。
+个人桌面 API Mock 管理器，内置本地代理引擎。业务继续请求正式域名，由本地代理返回选定的 JSON 场景。
 
 ## 打开应用
 
-解压 `Whistle-Mock-Manager-0.1.2-mac-arm64.zip`，双击 `Whistle Mock Manager.app`，或拖入“应用程序”。需要 macOS Apple Silicon；成品无需安装 Node.js、npm、w2 或开发工具。
+解压 `Mock-Manager-0.1.3-mac-arm64.zip`，双击 `Mock Manager.app`，或拖入“应用程序”。需要 macOS Apple Silicon；成品无需安装 Node.js、npm、w2 或开发工具。
 
 这是本地 ad-hoc 签名的构建，尚未进行 Apple 开发者签名和公证。若首次打开被阻止，在 Finder 中按住 Control 点击并选择“打开”，或通过“系统设置 → 隐私与安全性”允许打开；无需关闭系统安全设置。
 
 ## 第一次使用
 
-1. 打开应用，内置引擎自动启动。点击左侧“代理配置指南”查看运行状态、版本和地址。
+1. 打开应用，内置引擎自动启动。点击左侧“设置”查看运行状态、版本和地址。
 2. HTTPS 接口：点击“导出根证书”，双击 .crt 添加到 macOS「登录」钥匙串；打开证书，在「信任」中选择「始终信任」，然后重启浏览器。内置引擎首次启动已开启 HTTPS 解密；证书信任需手动完成。
-3. 开启“系统代理”。浏览器应使用系统代理，代理扩展可切为系统模式或停用。也可以按界面地址手动配置浏览器。
+3. 在顶栏或设置中开启“系统代理”。浏览器应使用系统代理，代理扩展可切为系统模式或停用。也可以按界面地址手动配置浏览器。
 4. 点击“测试连接”，验证本地 HTTP 请求经过内置代理。此测试不代表浏览器路由或 HTTPS 证书信任已配置。
 5. 新建项目、接口，填写完整 URL 和 HTTP 方法，编辑成功、空数据、报错等响应场景。
-6. 选择场景，启用接口，点击“应用到 Whistle”，再刷新目标页面。
+6. 选择场景，启用接口，点击“应用更改”，再刷新目标页面。
 
 初始示例使用 `api.example.test`，所有接口默认关闭。“已同步”表示规则已写入并通过读回验证，实际请求仍需经过正确代理。
 
@@ -42,6 +42,8 @@
 
 ## 从旧版本升级
 
+0.1.3 更名为 Mock Manager，采用冷白与钴蓝配色，增加顶栏系统代理开关和列表接口开关。保留原数据目录、应用标识及代理恢复记录，已有项目与内置引擎证书可继续使用。菜单“帮助 → 开源许可证”可查看第三方声明。
+
 所有用户统一使用内置引擎，旧 w2 连接不再读取。项目、接口、场景、草稿和上次应用快照保留；旧版中断同步记录仅在本地归档。外部 Whistle 进程和规则不会被改动。
 
 退出旧版桌面应用后再打开新版，避免单实例锁将启动请求交给旧版。升级后重新应用草稿，或手动恢复上次快照。内置证书和端口与外部 Whistle 不同，需要按指南重新配置。若系统代理仍指向旧地址，先关闭开关恢复，再重新开启。
@@ -67,11 +69,13 @@ npm run test:integration
 npm run test:engine
 npm run test:desktop
 npm run test:system-proxy:desktop
+node --import tsx scripts/design-preview.mjs
 npm run package:mac
+node scripts/packaged-test.mjs
 ```
 
 代理集成测试使用固定版本的 npm Whistle 和本地假后端，不访问正式接口。桌面测试使用隔离数据目录；系统代理测试通过独立助手进程模拟系统设置，不改变真实代理或证书信任。
 
 开发时 `MOCK_MANAGER_DATA_DIR=/absolute/path` 可指定测试数据目录，`MOCK_MANAGER_PROXY_HELPER` 可覆盖测试助手。打包成品忽略这两个测试变量；可用 Electron 的 `--user-data-dir=<绝对路径>` 建立隔离配置。
 
-技术：Electron、React、TypeScript、Vite。Whistle npm 包在 Electron utility process 中运行，使用独立数据、证书和固定端口，仅监听 `127.0.0.1`。管理请求带每次启动生成的认证密钥。Whistle 使用 MIT 许可，依赖包许可证保留在成品中。[Whistle 模块文档](https://wproxy.org/docs/extensions/npm.html)。
+技术：Electron、React、TypeScript、Vite。Whistle npm 包在 Electron utility process 中运行，使用独立数据、证书和固定端口，仅监听 `127.0.0.1`。管理请求带每次启动生成的认证密钥。引擎使用 Whistle 2.10.15（MIT 许可）；原始许可证及声明见 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)，依赖包许可证保留在成品中。[Whistle 模块文档](https://wproxy.org/docs/extensions/npm.html)。

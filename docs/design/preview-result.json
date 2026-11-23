@@ -1,0 +1,333 @@
+{
+  "passed": true,
+  "realProxyWrites": false,
+  "systemTrustWrites": false,
+  "screenshots": [
+    {
+      "file": "design-workbench.png",
+      "viewport": {
+        "width": 1584,
+        "height": 992
+      },
+      "documentWidth": 1584,
+      "topbarWidth": 1584,
+      "topbarScrollWidth": 1584,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 1143,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 1257,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 1400,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 1448,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 236,
+        "y": 66,
+        "width": 338,
+        "height": 876
+      },
+      "editor": {
+        "x": 574,
+        "y": 66,
+        "width": 1010,
+        "height": 876
+      }
+    },
+    {
+      "file": "design-default.png",
+      "viewport": {
+        "width": 1440,
+        "height": 940
+      },
+      "documentWidth": 1440,
+      "topbarWidth": 1440,
+      "topbarScrollWidth": 1440,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 999,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 1113,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 1256,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 1304,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 216,
+        "y": 66,
+        "width": 307.4375,
+        "height": 824
+      },
+      "editor": {
+        "x": 523.4375,
+        "y": 66,
+        "width": 916.5625,
+        "height": 824
+      }
+    },
+    {
+      "file": "design-compact.png",
+      "viewport": {
+        "width": 1080,
+        "height": 720
+      },
+      "documentWidth": 1080,
+      "topbarWidth": 1080,
+      "topbarScrollWidth": 1080,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 677,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 779,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 910,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 952,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 180,
+        "y": 66,
+        "width": 288,
+        "height": 604
+      },
+      "editor": {
+        "x": 468,
+        "y": 66,
+        "width": 612,
+        "height": 604
+      }
+    },
+    {
+      "file": "design-settings.png",
+      "viewport": {
+        "width": 1584,
+        "height": 992
+      },
+      "documentWidth": 1584,
+      "topbarWidth": 1584,
+      "topbarScrollWidth": 1584,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 1143,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 1257,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 1400,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 1448,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 236,
+        "y": 66,
+        "width": 338,
+        "height": 876
+      },
+      "editor": {
+        "x": 574,
+        "y": 66,
+        "width": 1010,
+        "height": 876
+      }
+    },
+    {
+      "file": "design-empty.png",
+      "viewport": {
+        "width": 1584,
+        "height": 992
+      },
+      "documentWidth": 1584,
+      "topbarWidth": 1584,
+      "topbarScrollWidth": 1584,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 1143,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 1257,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 1400,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 1448,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 236,
+        "y": 66,
+        "width": 338,
+        "height": 876
+      },
+      "editor": null
+    },
+    {
+      "file": "design-validation-error.png",
+      "viewport": {
+        "width": 1584,
+        "height": 992
+      },
+      "documentWidth": 1584,
+      "topbarWidth": 1584,
+      "topbarScrollWidth": 1584,
+      "controls": [
+        {
+          "name": "待应用",
+          "x": 1143,
+          "y": 14.5,
+          "width": 89,
+          "height": 36
+        },
+        {
+          "name": "系统代理",
+          "x": 1257,
+          "y": 14.5,
+          "width": 118,
+          "height": 36
+        },
+        {
+          "name": "连接设置",
+          "x": 1400,
+          "y": 14.5,
+          "width": 36,
+          "height": 36
+        },
+        {
+          "name": "应用更改",
+          "x": 1448,
+          "y": 12.5,
+          "width": 112,
+          "height": 40
+        }
+      ],
+      "requests": {
+        "x": 236,
+        "y": 111,
+        "width": 338,
+        "height": 831
+      },
+      "editor": {
+        "x": 574,
+        "y": 111,
+        "width": 1010,
+        "height": 831
+      }
+    }
+  ],
+  "checks": [
+    "toolbar system proxy uses isolated fixture helper for both protocols",
+    "real local HTTP self-test and HTTPS CONNECT with exported CA verification",
+    "row switches preserve selected endpoint and change only saved draft until Apply",
+    "success, empty and error scenarios use explicit Apply boundary with real HTTPS responses",
+    "invalid JSON blocks Apply and retains previous working response",
+    "CSS-pixel screenshots and viewport/toolbar containment at 1584, 1440 and 1080",
+    "graceful quit restores original fixture proxy/PAC/SOCKS/bypass configuration"
+  ],
+  "pageErrors": [],
+  "consoleErrors": [],
+  "nativeViewport": {
+    "width": 1440,
+    "height": 940,
+    "devicePixelRatio": 2
+  },
+  "version": "0.1.3",
+  "engineVersion": "2.10.15",
+  "fixtureRestored": true
+}

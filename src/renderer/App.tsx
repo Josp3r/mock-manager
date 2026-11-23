@@ -1,13 +1,14 @@
 import {
-  Activity, BadgeCheck, Cable, ChevronRight, CircleAlert, CloudOff, Compass, Database, Folder, FolderOpen, Folders,
-  GitBranch, Layers3, LayoutList, Pencil, Plus, Power, Radio, Save, Search, Send, Settings2, Trash2, X,
+  Activity, ChevronRight, CircleAlert, CloudOff, Database, Folder, FolderOpen, Folders,
+  Layers3, LayoutList, Pencil, Plus, Power, Save, Search, Settings2, Trash2, X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import brandMark from '../../assets/brand-mark.png';
 import type { Endpoint, HttpMethod, Preset, Project, Scenario } from '../shared/types';
 import { EndpointEditor } from './EndpointEditor';
 import { deleteEndpoint, deleteScenario, makeScenario, methods, moduleName, readUrl, saveEndpoint, timeLabel } from './model';
 import { Settings } from './Settings';
-import { Button, Dialog, Field, FormDialog, IconButton, Method, Notice, readField, requiredField, type FormSpec } from './ui';
+import { Button, Dialog, Field, FormDialog, IconButton, Method, Notice, readField, requiredField, Switch, type FormSpec } from './ui';
 import { useWorkspace } from './workspace';
 
 interface View {
@@ -86,7 +87,7 @@ export function App() {
     showForm({
       title: '删除项目',
       submit: '删除项目',
-      description: `删除「${current.name}」及其接口和项目预设。Whistle 将在下次应用时更新。`,
+      description: `删除「${current.name}」及其接口和项目预设。Mock 规则将在下次应用时更新。`,
       danger: true,
       action: () => {
         edit(data => ({ ...data, projects: data.projects.filter(item => item.id !== current.id) }));
@@ -244,7 +245,7 @@ export function App() {
     showForm({
       title: '恢复专属规则',
       submit: '恢复',
-      description: '恢复 Whistle 中的专属规则和上次应用的响应。当前草稿会保留，未应用的更改仍需手动应用。',
+      description: '恢复本地引擎中的专属规则和上次应用的响应。当前草稿会保留，未应用的更改仍需手动应用。',
       danger: true,
       action: workspace.restore,
     }, 'settings');
@@ -256,25 +257,44 @@ export function App() {
   const engineConnected = status?.running && !workspace.statusError;
   const proxyConnected = engineConnected && workspace.systemProxy?.state === 'on'
     && workspace.systemProxy.address === status.address && !workspace.systemProxyError;
+  const proxy = workspace.systemProxy;
+  // Ownership stays checked until restoration succeeds, including an interrupted
+  // operation. Its warning affordance distinguishes that from a healthy proxy.
+  const proxyNeedsAttention = !!workspace.systemProxyError || proxy?.state === 'error'
+    || (!!proxy?.managed && !proxyConnected);
+  const proxyDisabled = working || !proxy?.supported
+    || (!proxy.managed && (!engineConnected || proxy.state === 'error' || !!workspace.systemProxyError));
+  const proxyHint = !proxy ? '正在读取系统代理状态'
+    : !proxy.supported ? '系统代理开关仅支持 macOS'
+    : proxyNeedsAttention ? '系统代理需要处理；关闭开关可尝试恢复原配置，或打开设置查看详情'
+    : proxy.managed ? '本应用已接管系统代理；关闭后恢复原配置'
+    : '开启后保存原配置，并将系统 HTTP/HTTPS 代理指向本地引擎';
 
   return <div className="app">
     <header className="topbar">
       <div className="brand">
-        <div className="brand__icon"><GitBranch size={19} strokeWidth={2} aria-hidden="true" /></div>
-        <span className="brand__name">Whistle Mock Manager</span>
+        <div className="brand__icon"><img className="brand__mark" src={brandMark} alt="" /></div>
+        <span className="brand__name">Mock Manager</span>
       </div>
       <div className="topbar__commands">
         {data && <span className={`save-state${workspace.saveError ? ' save-state--error' : ''}`} role="status">
           <Save size={15} aria-hidden="true" /> {saveText}
         </span>}
-        <Button kind="quiet" className={`connection connection--${sync.tone}`} onClick={() => setOverlay('settings')} title="查看 Whistle 连接状态">
-          {sync.tone === 'good' ? <BadgeCheck size={16} aria-hidden="true" /> : <Cable size={16} aria-hidden="true" />}
+        <Button kind="quiet" className={`connection connection--${sync.tone}`} onClick={() => setOverlay('settings')} title="查看 Mock 规则应用状态">
+          <span className="connection__dot" aria-hidden="true" />
           {sync.label}
         </Button>
         <span className="topbar__rule" aria-hidden="true" />
+        <div className={`topbar__proxy${proxyNeedsAttention ? ' topbar__proxy--attention' : ''}`} title={proxyHint}>
+          <Switch label="系统代理" checked={!!proxy?.managed} disabled={proxyDisabled} change={workspace.setSystemProxy} />
+          {proxyNeedsAttention && <Button kind="quiet" className="proxy-attention" onClick={() => setOverlay('settings')}>
+            <CircleAlert size={14} aria-hidden="true" /> 待处理
+          </Button>}
+        </div>
+        <span className="topbar__rule" aria-hidden="true" />
         <IconButton label="连接设置" onClick={() => setOverlay('settings')}><Settings2 size={18} aria-hidden="true" /></IconButton>
         <Button kind="primary" disabled={!data || working} onClick={workspace.apply}>
-          <Send size={15} aria-hidden="true" /> {busy === '正在应用' ? '正在应用…' : '应用到 Whistle'}
+          {busy === '正在应用' ? '正在应用…' : '应用更改'}
         </Button>
       </div>
     </header>
@@ -315,34 +335,28 @@ export function App() {
           </>}
         </div>
         <div className="sidebar__footer">
-          <Button kind="quiet" className="sidebar__setup" onClick={() => setOverlay('settings')}>
-            <Compass size={16} aria-hidden="true" /> 代理配置指南
-          </Button>
           <Button kind="quiet" onClick={() => setOverlay('backup')}><Database size={16} aria-hidden="true" /> 数据与备份</Button>
+          <Button kind="quiet" className="sidebar__setup" onClick={() => setOverlay('settings')}>
+            <Settings2 size={16} aria-hidden="true" /> 设置
+          </Button>
         </div>
       </nav>
 
       <section className="requests" aria-label="接口列表">
         <header className="requests__header">
           <div className="request-heading">
-            <h2 title={project?.name}>{project?.name ?? '接口列表'}</h2>
+            <h2>接口</h2>
             {project && <div className="request-heading__tools">
+              <IconButton label="项目预设" disabled={working} onClick={() => setOverlay('presets')}><Layers3 size={15} aria-hidden="true" /></IconButton>
               <IconButton label="编辑项目" disabled={working} onClick={() => projectForm(project)}><Pencil size={14} aria-hidden="true" /></IconButton>
               <IconButton label="删除项目" disabled={working} onClick={() => removeProject(project)}><Trash2 size={14} aria-hidden="true" /></IconButton>
+              <IconButton label="新建接口" disabled={working} onClick={() => endpointForm(project)}><Plus size={19} aria-hidden="true" /></IconButton>
             </div>}
           </div>
           {project?.description && <p className="project-description" title={project.description}>{project.description}</p>}
-          <div className="request-actions">
-            <Button onClick={() => project && endpointForm(project)} disabled={!project || working}>
-              <Plus size={15} aria-hidden="true" /> 新建接口
-            </Button>
-            <Button kind="quiet" onClick={() => setOverlay('presets')} disabled={!project || working}>
-              <Layers3 size={15} aria-hidden="true" /> 项目预设
-            </Button>
-          </div>
           <div className="search">
             <Search size={16} aria-hidden="true" />
-            <input type="search" aria-label="搜索接口" placeholder="搜索名称、路径或方法" value={view.search}
+            <input type="search" aria-label="搜索接口" placeholder="搜索接口" value={view.search}
               disabled={!project} onChange={event => setView(current => ({ ...current, search: event.target.value }))} />
             {view.search && <IconButton label="清空搜索" onClick={() => setView(current => ({ ...current, search: '' }))}>
               <X size={14} aria-hidden="true" />
@@ -356,15 +370,22 @@ export function App() {
         <div className="requests__scroll">
           {visibleEndpoints.length > 0 && <ul className="endpoint-list">
             {visibleEndpoints.map(item => (
-              <li key={item.id}><button type="button" className="endpoint-row"
-                aria-current={endpoint?.id === item.id ? 'true' : undefined}
-                onClick={() => setView(current => ({ ...current, endpoint: item.id }))}>
-                <div className="endpoint-row__line">
-                  <Method method={item.method} /><strong title={item.name}>{item.name}</strong>
-                  {item.enabled ? <Radio className="endpoint-row__enabled" size={15} aria-label="接口草稿已启用" /> : <Power size={14} aria-label="接口草稿已停用" />}
+              <li key={item.id} className="endpoint-item" data-selected={endpoint?.id === item.id || undefined}
+                data-enabled={item.enabled}>
+                <button type="button" className="endpoint-row"
+                  aria-current={endpoint?.id === item.id ? 'true' : undefined}
+                  onClick={() => setView(current => ({ ...current, endpoint: item.id }))}>
+                  <Method method={item.method} />
+                  <span className="endpoint-row__content">
+                    <strong title={item.name}>{item.name}</strong>
+                    <code className="endpoint-row__url" title={item.url}>{requestPath(item.url)}</code>
+                  </span>
+                </button>
+                <div className="endpoint-item__switch" title="接口草稿的启用状态，应用后生效">
+                  <Switch label={`启用接口 ${item.name}`} checked={item.enabled} disabled={working}
+                    change={enabled => project && updateEndpoint(project, item, current => ({ ...current, enabled }))} />
                 </div>
-                <code className="endpoint-row__url" title={item.url}>{item.url || '未填写请求 URL'}</code>
-              </button></li>
+              </li>
             ))}
           </ul>}
           {project && !visibleEndpoints.length && <div className="list-empty">
@@ -399,7 +420,7 @@ export function App() {
             </div> : !data ? <div className="blank-detail__content" role="status">
               <Activity size={26} aria-hidden="true" /><h1>正在读取工作台…</h1>
             </div> : <div className="blank-detail__content">
-              <span className="blank-detail__glyph"><GitBranch size={32} aria-hidden="true" /></span>
+              <span className="blank-detail__glyph"><img src={brandMark} alt="" /></span>
               <h1>{search ? '没有可编辑的接口' : '接口编辑器'}</h1>
               <p>{search ? '清空搜索或更换关键词后选择接口。' : project ? '新建一个接口以编辑请求匹配和响应场景。' : '创建项目与接口后，在这里编辑响应。'}</p>
               {search && <Button onClick={() => setView(current => ({ ...current, search: '' }))}>清空筛选</Button>}
@@ -410,8 +431,8 @@ export function App() {
     <footer className="statusbar" aria-label="工作台状态">
       <div className="statusbar__area">
         {engineConnected
-          ? <><Cable size={14} aria-hidden="true" /><span>内置 Whistle 已连接</span>{status.address && <code>{status.address}</code>}</>
-          : <><CloudOff size={14} aria-hidden="true" /><span>{workspace.statusError ? '连接检测失败' : status ? '内置 Whistle 未连接' : '正在检测 Whistle'}</span></>}
+          ? <><span className="engine-dot" aria-hidden="true" /><span>本地引擎运行中</span>{status.address && <code className="statusbar__address">{status.address}</code>}</>
+          : <><CloudOff size={14} aria-hidden="true" /><span>{workspace.statusError ? '连接检测失败' : status ? '本地引擎未运行' : '正在检测本地引擎'}</span></>}
         {project && <span className="statusbar__split">{enabledCount} / {project.endpoints.length} 接口启用</span>}
       </div>
       <div className="statusbar__area">
@@ -451,13 +472,23 @@ function capturePreset(project: Project): Preset['selections'] {
   return Object.fromEntries(project.endpoints.map(item => [item.id, { enabled: item.enabled, scenarioId: item.activeScenarioId }]));
 }
 
+function requestPath(url: string) {
+  if (!url) return '未填写请求 URL';
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname + parsed.search;
+  } catch {
+    return url;
+  }
+}
+
 function connectionCopy(
   status: ReturnType<typeof useWorkspace>['status'], everApplied: boolean, localChanges: boolean, failed: boolean,
 ) {
   if (failed) return { label: '检测失败', tone: 'error' };
   if (!status) return { label: '连接检测中', tone: 'idle' };
   switch (status.syncState) {
-    case 'offline': return { label: 'Whistle 离线', tone: 'idle' };
+    case 'offline': return { label: '引擎未运行', tone: 'idle' };
     case 'conflict': return { label: '规则冲突', tone: 'error' };
     case 'disabled':
       return { label: status.rulesDisabled ? '全局规则关闭' : everApplied ? 'Mock 已停用' : '尚未应用', tone: 'idle' };

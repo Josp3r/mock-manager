@@ -1,12 +1,14 @@
 import { _electron as electron } from 'playwright';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import assert from 'node:assert/strict';
 import { get } from 'node:http';
 import { X509Certificate } from 'node:crypto';
 
 await mkdir('test-results',{recursive:true});
-const dataDir=await mkdtemp(resolve('test-results/desktop-'));
+const testRoot=await mkdtemp(resolve('test-results/desktop-'));
+const dataDir=join(testRoot,'fresh','profile');
+await assert.rejects(stat(dataDir), { code:'ENOENT' });
 const env={...process.env,MOCK_MANAGER_DATA_DIR:dataDir,WHISTLE_PATH:join(dataDir,'whistle-config')};
 delete env.ELECTRON_RUN_AS_NODE;
 const launch=()=>electron.launch({args:['.'],cwd:process.cwd(),env});
@@ -21,6 +23,8 @@ const proxyCall = () => new Promise((resolve, reject) => {
 const errors=[];
 try {
   let page=await app.firstWindow();page.on('pageerror',e=>errors.push(e.message));
+  assert.equal(await app.evaluate(({app})=>app.getPath('userData')),dataDir);
+  assert.ok((await stat(dataDir)).isDirectory(),'first launch creates the nested profile directory');
   await page.getByRole('button',{name:'新建项目',exact:true}).waitFor();
   await page.locator('.project-description').filter({hasText:'仅用于演示。示例域名 api.example.test'}).waitFor();
   for (const [width,height] of [[1440,940],[1080,720]]) {
@@ -48,7 +52,7 @@ try {
   await page.getByLabel('请求 URL').fill('http://api.example.test/api/users');
   await page.getByRole('button',{name:'创建接口',exact:true}).click();
   await page.getByLabel('响应体 JSON',{exact:true}).fill('{\n  "code": 0,\n  "data": [{"id": 1, "name": "示例用户"}]\n}');
-  await page.getByRole('switch',{name:'启用接口'}).check();
+  await page.getByRole('switch',{name:'启用接口',exact:true}).check();
   await page.getByRole('button',{name:'新增场景',exact:true}).click();
   await page.getByLabel('场景名称',{exact:true}).fill('空数据');
   await page.getByRole('button',{name:'创建场景',exact:true}).click();
@@ -65,7 +69,7 @@ try {
   assert.equal(project.endpoints[0].scenarios.length,2);assert.equal(project.presets.length,1);assert.equal(project.endpoints[0].enabled,true);
   // Invalid JSON is preserved as a draft, visibly rejected before proxy changes.
   await page.getByLabel('响应体 JSON',{exact:true}).fill('{invalid');
-  await page.getByRole('button',{name:'应用到 Whistle',exact:true}).click();
+  await page.getByRole('button',{name:'应用更改',exact:true}).click();
   await page.getByRole('alert').filter({hasText:/JSON/}).waitFor();
   await page.getByLabel('响应体 JSON',{exact:true}).fill('{\n  "code": 0,\n  "data": [],\n  "message": "没有匹配的用户"\n}');
   // Close immediately, inside the debounce interval: the renderer must flush.
@@ -89,7 +93,7 @@ try {
   const address=proxy.address;
   await settings.getByText(address,{exact:false}).waitFor();
   await page.locator('.statusbar').getByText(address,{exact:true}).waitFor();
-  assert.ok((await settings.innerText()).includes('应用内置 Whistle'));
+  assert.ok((await settings.innerText()).includes('本地代理引擎'));
   assert.ok(!(await settings.innerText()).includes('选择 w2'));
   assert.equal((await page.evaluate(()=>window.mockManager.testConnection())).ok,true);
   const certPath=join(dataDir,'exported.crt');
@@ -99,14 +103,14 @@ try {
   assert.ok(!(await readFile(certPath,'utf8')).includes('PRIVATE KEY'));
   await page.screenshot({path:'test-results/builtin-settings.png'});
   await page.getByRole('button',{name:'完成',exact:true}).click();
-  await page.getByRole('button',{name:'应用到 Whistle',exact:true}).click();
+  await page.getByRole('button',{name:'应用更改',exact:true}).click();
   await page.getByRole('button',{name:'已同步',exact:true}).waitFor();
   assert.equal((await proxyCall()).body.message,'没有匹配的用户');
   const status=await page.evaluate(()=>window.mockManager.status());
   assert.equal(status.host,'127.0.0.1','builtin loopback host');
   assert.equal(status.port,proxy.port,'real resolver port');
   await page.getByRole('tab',{name:'默认响应',exact:true}).click();
-  await page.getByRole('button',{name:'应用到 Whistle',exact:true}).click();
+  await page.getByRole('button',{name:'应用更改',exact:true}).click();
   await page.getByRole('button',{name:'已同步',exact:true}).waitFor();
   assert.equal((await proxyCall()).body.data[0].name,'示例用户');
   await page.screenshot({path:'test-results/desktop-workbench.png'});

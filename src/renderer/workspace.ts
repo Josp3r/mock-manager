@@ -48,7 +48,7 @@ export function useWorkspace() {
   const load = useCallback(async () => {
     setLoadError('');
     if (!bridge) {
-      setLoadError('请在 Whistle Mock Manager 桌面应用中打开工作台。');
+      setLoadError('请在 Mock Manager 桌面应用中打开工作台。');
       return;
     }
     try {
@@ -214,7 +214,7 @@ export function useWorkspace() {
       accept(value.data);
       receiveStatus(value.status);
     }, true),
-    start: () => void run('正在启动内置 Whistle', api => {
+    start: () => void run('正在启动本地代理引擎', api => {
       setConnectionTest(undefined);
       return api.startWhistle();
     }, receiveStatus),
@@ -234,7 +234,7 @@ export function useWorkspace() {
         setSystemProxyError('');
         if (value.state === 'error' || !value.supported || (enabled ? value.state !== 'on' : value.managed)) {
           setCommandError(value.message || '系统代理设置未完成，请检查状态后重试。');
-        } else setNotice(enabled ? '已将系统 HTTP/HTTPS 代理指向 Whistle。' : '已恢复开启前的系统代理设置。');
+        } else setNotice(enabled ? '已将系统 HTTP/HTTPS 代理指向本地代理引擎。' : '已恢复开启前的系统代理设置。');
       }),
     releaseSystemProxy: () => void run('正在保留当前设置', api => api.releaseSystemProxy(), value => {
       setSystemProxyStatus(value);

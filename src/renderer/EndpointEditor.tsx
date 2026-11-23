@@ -1,5 +1,5 @@
 import {
-  Braces, Check, CircleAlert, Clock3, Code2, Download, FileJson, ListFilter, Pencil, Plus, Trash2,
+  Braces, Check, CircleAlert, Download, FileJson, ListFilter, Pencil, Plus, Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import type { Condition, Endpoint, Project, Scenario } from '../shared/types';
@@ -68,7 +68,7 @@ export function EndpointEditor(props: EditorProps) {
       <section className="response" aria-labelledby="response-heading">
         <header className="response__heading">
           <h2 id="response-heading">响应场景</h2>
-          <span className="muted">应用后切换</span>
+          <span className="muted">应用后生效</span>
         </header>
         <div className="response__scene">
           <div className="scene-tabs" role="tablist" aria-label="响应场景">
@@ -106,12 +106,10 @@ export function EndpointEditor(props: EditorProps) {
         {scenario && <div className="scene-panel" role="tabpanel" id="scenario-editor" aria-labelledby={`scenario-${scenario.id}`} key={scenario.id}>
           <div className="response-options">
             <div className="status-control">
-              <span className="option-icon"><Code2 size={15} aria-hidden="true" /></span>
-              <NumberField label="HTTP 状态码" min={200} max={599} value={scenario.status} disabled={busy}
+              <NumberField label="状态码" min={200} max={599} value={scenario.status} disabled={busy}
                 change={status => updateScenario({ status })} />
             </div>
             <div className="status-control">
-              <span className="option-icon"><Clock3 size={15} aria-hidden="true" /></span>
               <NumberField label="延迟" min={0} max={60_000} value={scenario.delay} disabled={busy}
                 change={delay => updateScenario({ delay })} unit="ms" />
             </div>

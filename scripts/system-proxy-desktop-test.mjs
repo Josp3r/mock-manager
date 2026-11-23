@@ -31,15 +31,15 @@ const read = async () => JSON.parse(await readFile(fixture, 'utf8'));
 async function settings() {
   const page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: '连接设置', exact: true }).click();
-  await page.getByRole('switch', { name: '系统代理', exact: true }).waitFor();
-  await page.getByText('运行中', { exact: false }).waitFor();
+  await page.getByRole('dialog').getByRole('switch', { name: '系统代理', exact: true }).waitFor();
+  await page.getByRole('dialog').getByText('运行中', { exact: false }).waitFor();
   return page;
 }
 try {
   app = await launch(); let page = await settings();
   proxy=await page.evaluate(()=>window.mockManager.status());
   await assert.rejects(page.evaluate(() => window.mockManager.setSystemProxy('on')), /参数/);
-  const toggle = () => page.getByRole('switch', { name: '系统代理', exact: true });
+  const toggle = () => page.getByRole('dialog').getByRole('switch', { name: '系统代理', exact: true });
   await toggle().click();
   await page.getByRole('alert').filter({ hasText: '已取消系统代理授权' }).waitFor();
   assert.equal(await toggle().isChecked(), false);
@@ -52,6 +52,14 @@ try {
   assert.deepEqual(installed.ExceptionsList, original.services[0].configuration.ExceptionsList);
   await page.screenshot({ path: 'test-results/system-proxy-on.png' });
   await page.getByRole('button', { name: '完成', exact: true }).click();
+  // The new always-visible toolbar control must use the same ownership/restore flow.
+  const toolbarToggle = () => page.locator('.topbar').getByRole('switch', { name: '系统代理', exact: true });
+  assert.equal(await toolbarToggle().isChecked(), true);
+  await toolbarToggle().click();
+  await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
+  assert.deepEqual((await read()).snapshot, original);
+  await toolbarToggle().click();
+  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
   const editor = page.getByLabel('响应体 JSON', { exact: true });
   await editor.fill('{"beforeCancelledQuit":true}');
   // Cancellation of quit restoration must leave the engine and app alive.
@@ -147,7 +155,7 @@ try {
   assert.deepEqual((await read()).snapshot, changed.snapshot);
   assert.deepEqual(errors, []);
   await writeFile('test-results/system-proxy-desktop-result.json', JSON.stringify({ passed: true, realNetworkChanges: false,
-    checks: ['narrow IPC', 'authorization cancellation', 'quit cancellation resumes edits', 'failed quit flush resumes edits', 'slow quit freezes late edits and exits', 'enable both protocols', 'PAC/SOCKS/bypass preservation',
+    checks: ['narrow IPC', 'authorization cancellation', 'toolbar proxy enable/restore', 'quit cancellation resumes edits', 'failed quit flush resumes edits', 'slow quit freezes late edits and exits', 'enable both protocols', 'PAC/SOCKS/bypass preservation',
       'quit restoration and restart', 'external-change conflict', 'explicit keep-current release', 'restore without Whistle'] }, null, 2));
   console.log('PASS: system-proxy desktop enable/restore/restart/cancel/conflict flow via isolated helper, no real network changes.');
 } catch (error) {

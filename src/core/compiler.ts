@@ -1,6 +1,5 @@
 import { t } from '../shared/i18n';
 import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
 import { activeRoutes, type ActiveRoute } from './model';
 import type { AppData, Condition } from '../shared/types';
 
@@ -65,8 +64,19 @@ function headerMismatches(headers: Map<string, string>): string[] {
 }
 
 function fixtureOperator(path: string): string {
-  if (!isAbsolute(path) || !path.startsWith('/') || path.startsWith('//')) throw new Error(t("响应文件必须使用绝对路径", "Response files must use absolute paths"));
-  const encoded = path.split('/').map((part) => encodeURIComponent(part).replace(/[!'()*]/g, (char) =>
+  const drivePath = /^[A-Za-z]:[\\/]/.test(path);
+  const localPath = drivePath ? path.replace(/\\/g, '/') : path;
+  const parts = localPath.split('/');
+  const invalidWindowsPart = drivePath && parts.slice(1).some((part) =>
+    /[:<>"|?*\x00-\x1f]/.test(part) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
+  );
+  if ((!drivePath && (!path.startsWith('/') || path.startsWith('//') || path.includes('\\'))) ||
+      invalidWindowsPart || path.includes('\0') || parts.includes('..')) {
+    throw new Error(t("响应文件必须使用本地绝对路径", "Response files must use local absolute paths"));
+  }
+  // This is Whistle's file operator, not a WHATWG file URL: it strips file://
+  // and decodes the remaining path once. A drive must not gain a leading '/'.
+  const encoded = parts.map((part) => encodeURIComponent(part).replace(/[!'()*]/g, (char) =>
     '%' + char.charCodeAt(0).toString(16).toUpperCase()
   )).join('/');
   return 'file://' + encoded;

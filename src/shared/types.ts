@@ -26,6 +26,7 @@ export interface SystemProxyStatus {
   message?: string;
 }
 export interface DesktopBridge {
+  readonly platform: 'darwin' | 'win32' | 'other';
   getLanguage(): Promise<LanguageSettings>;
   setLanguage(preference: LanguagePreference): Promise<LanguageSettings>;
   load(): Promise<AppData>;

@@ -1,0 +1,158 @@
+name: Build and test desktop packages
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # These are native standard runners, not Rosetta or cross-builds.
+          # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+          - label: mac-arm64
+            runner: macos-15
+            platform: darwin
+            arch: arm64
+            bundle: release/mac-arm64/Mock Manager.app
+          - label: mac-x64
+            runner: macos-15-intel
+            platform: darwin
+            arch: x64
+            bundle: release/mac/Mock Manager.app
+          - label: win-x64
+            runner: windows-2025
+            platform: win32
+            arch: x64
+            bundle: release/win-unpacked
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET_ARCH: ${{ matrix.arch }}
+      TARGET_PLATFORM: ${{ matrix.platform }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          architecture: ${{ matrix.arch }}
+          cache: npm
+      - name: Verify native runner and release version
+        run: |
+          mkdir -p test-results
+          node --input-type=module <<'JS' | tee test-results/runner.log
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          assert.equal(process.platform, process.env.TARGET_PLATFORM);
+          assert.equal(process.arch, process.env.TARGET_ARCH);
+          assert.equal(process.env.RUNNER_ARCH.toLowerCase(), process.env.TARGET_ARCH);
+          const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+          if (process.env.GITHUB_REF_TYPE === 'tag') assert.equal(process.env.GITHUB_REF_NAME, `v${version}`);
+          console.log({ platform: process.platform, arch: process.arch, node: process.version, version, commit: process.env.GITHUB_SHA });
+          JS
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps 2>&1 | tee test-results/install.log
+      - name: Unit tests
+        run: npm test 2>&1 | tee test-results/unit.log
+      - name: Build app and native helper
+        run: npm run build 2>&1 | tee test-results/build.log
+      - name: Real Whistle integration
+        run: npm run test:integration 2>&1 | tee test-results/integration.log
+      - name: Package and check binary architecture
+        run: node scripts/package-app.mjs --platform "$TARGET_PLATFORM" --arch "$TARGET_ARCH" --dir 2>&1 | tee test-results/package.log
+      # Electron tests run sequentially within each job; they never share ports.
+      - name: Packaged runtime smoke test
+        env:
+          APP_BUNDLE: ${{ matrix.bundle }}
+        run: npm run test:packaged -- "$APP_BUNDLE" 2>&1 | tee test-results/packaged.log
+      - name: Windows native proxy change and restore on disposable runner
+        if: runner.os == 'Windows'
+        env:
+          MOCK_MANAGER_PROXY_MUTATION_TEST: '1'
+        run: npm run test:windows-proxy:native 2>&1 | tee test-results/windows-proxy.log
+      - name: Archive tested app and generate checksums
+        run: node scripts/archive-release.mjs --platform "$TARGET_PLATFORM" --arch "$TARGET_ARCH" 2>&1 | tee test-results/archive.log
+      - name: Upload distributable artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Mock-Manager-${{ matrix.label }}
+          path: |
+            release/Mock-Manager-*.zip
+            release/Mock-Manager-*-setup.exe
+            release/SHA256SUMS-*.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Upload verification logs and screenshots
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: verification-${{ matrix.label }}
+          # Explicit files only: profile folders contain generated CA private keys.
+          path: |
+            test-results/*.log
+            test-results/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+  draft-release:
+    name: Create draft release after all native tests pass
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: Mock-Manager-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify all artifact checksums
+        shell: bash
+        run: |
+          test "$(find artifacts -maxdepth 1 -name '*.zip' | wc -l)" -eq 3
+          test "$(find artifacts -maxdepth 1 -name '*-setup.exe' | wc -l)" -eq 1
+          test "$(find artifacts -maxdepth 1 -name 'SHA256SUMS-*.txt' | wc -l)" -eq 3
+          cat artifacts/SHA256SUMS-*.txt > artifacts/SHA256SUMS.txt
+          cd artifacts
+          sha256sum --check SHA256SUMS.txt
+      - name: Create or update draft without publishing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > release-notes.md <<'NOTES'
+          Native macOS arm64, macOS x64 and Windows x64 builds passed unit, Whistle integration and packaged runtime tests. Windows also passed a disposable-runner native proxy change/restore test.
+
+          macOS apps use local ad-hoc signatures and are not Apple notarized. Windows packages are unsigned. Review the artifacts and verification logs before publishing this draft.
+
+          Assets: macOS ZIPs; Windows NSIS installer and portable ZIP; SHA-256 checksums.
+          NOTES
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            test "$draft" = true || { echo 'Refusing to modify an already published release.' >&2; exit 1; }
+            gh release upload "$RELEASE_TAG" artifacts/*.zip artifacts/*-setup.exe artifacts/SHA256SUMS.txt --clobber
+          else
+            gh release create "$RELEASE_TAG" artifacts/*.zip artifacts/*-setup.exe artifacts/SHA256SUMS.txt \
+              --draft --verify-tag --target "$GITHUB_SHA" --title "Mock Manager $RELEASE_TAG" --notes-file release-notes.md
+          fi

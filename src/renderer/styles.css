@@ -3,6 +3,7 @@
 @import url("./base.css");
 
 html { scrollbar-color: var(--color-input-edge) var(--color-paper-2); }
+html[data-platform='win32'], html[data-platform='other'] { --titlebar-inset: var(--space-lg); }
 h1, h2 { text-wrap: balance; }
 
 .app {

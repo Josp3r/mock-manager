@@ -101,6 +101,23 @@ describe('Whistle compiler', () => {
     expect(text).not.toContain(' # literal');
     expect(() => compileRules(example, () => '../relative.json')).toThrow(/absolute|绝对/);
   });
+
+  it.each([
+    ['C:\\Users\\测试 用户\\100% #1\\fixture.json', 'file://C%3A/Users/%E6%B5%8B%E8%AF%95%20%E7%94%A8%E6%88%B7/100%25%20%231/fixture.json'],
+    ['d:/Mock data/percent%20literal.json', 'file://d%3A/Mock%20data/percent%2520literal.json'],
+    ['/tmp/测试 用户/100% #1/fixture.json', 'file:///tmp/%E6%B5%8B%E8%AF%95%20%E7%94%A8%E6%88%B7/100%25%20%231/fixture.json'],
+  ])('encodes a local absolute fixture path for Whistle: %s', (path, token) => {
+    expect(compileRules(dataWith(), () => path).split(/\s+/)).toContain(token);
+  });
+
+  it.each([
+    '../fixture.json', 'C:fixture.json', '\\fixtures\\response.json',
+    '\\\\server\\share\\response.json', '//server/share/response.json',
+    '\\\\?\\C:\\fixtures\\response.json', '\\\\.\\C:\\fixtures\\response.json',
+    'C:\\fixtures\\NUL.json', 'C:\\fixtures\\response.json:stream',
+  ])('rejects relative, network, and device fixture paths: %s', (path) => {
+    expect(() => compileRules(dataWith(), () => path)).toThrow();
+  });
 });
 
 describe('Configuration validation', () => {

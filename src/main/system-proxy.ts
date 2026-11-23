@@ -1,9 +1,10 @@
 import { NativeSystemProxyError } from './native-system-proxy';
+import { validWindowsConfiguration, windowsHasCredentials, windowsInstalledState, WindowsSystemProxyError } from './windows-system-proxy';
 import { t } from '../shared/i18n';
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
 import { link, mkdir, open, rename, rm, unlink } from 'node:fs/promises';
 import { isIP } from 'node:net';
+import { openRegularFile, syncDirectory } from './filesystem';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { SystemProxyStatus } from '../shared/types';
@@ -16,6 +17,7 @@ type ProxyTarget = { host: string; port: number };
 type SavedService = ProxyProtocolState & { id: string; name: string };
 type Journal = {
   version: 1;
+  platform?: 'darwin' | 'win32';
   phase: 'pending' | 'active';
   target: ProxyTarget;
   before: SavedService[];
@@ -61,7 +63,8 @@ function normalizeTarget(input: unknown): ProxyTarget {
   }
 }
 
-function installedState(before: ProxyProtocolState, target: ProxyTarget): ProxyProtocolState {
+function installedState(before: ProxyProtocolState, target: ProxyTarget, platform?: string): ProxyProtocolState {
+  if (platform === 'win32') return windowsInstalledState(before, target);
   return {
     enabled: true,
     configuration: {
@@ -73,7 +76,8 @@ function installedState(before: ProxyProtocolState, target: ProxyTarget): ProxyP
   };
 }
 
-function hasAuthentication(configuration: ProxyConfiguration) {
+function hasAuthentication(configuration: ProxyConfiguration, platform?: string) {
+  if (platform === 'win32') return windowsHasCredentials(configuration);
   return Object.keys(configuration).some((key) =>
     /^(https?|webproxy|secureweb)/i.test(key) && /user|pass|auth|credential|keychain/i.test(key));
 }
@@ -87,9 +91,9 @@ function savedService(value: unknown): value is SavedService {
     && typeof value.name === 'string' && typeof value.enabled === 'boolean' && record(value.configuration);
 }
 
-function parseJournal(bytes: Buffer): Journal {
+function parseJournal(bytes: Buffer, platform: string = 'darwin'): Journal {
   const value: unknown = JSON.parse(bytes.toString('utf8'));
-  if (!record(value) || value.version !== 1 || !Array.isArray(value.before) || !value.before.length
+  if (!record(value) || (value.platform ?? 'darwin') !== platform || value.version !== 1 || !Array.isArray(value.before) || !value.before.length
     || !Array.isArray(value.installed) || value.before.length !== value.installed.length
     || !value.before.every(savedService) || !value.installed.every(savedService)
     || new Set(value.before.map(({ id }: SavedService) => id)).size !== value.before.length) {
@@ -101,12 +105,13 @@ function parseJournal(bytes: Buffer): Journal {
   const target = normalizeTarget(value.target);
   if (!isDeepStrictEqual(target, value.target) || !before.every((service, index) => {
     const applied = installed[index];
-    return applied.id === service.id && applied.name === service.name && !hasAuthentication(service.configuration)
-      && isDeepStrictEqual(serviceState(applied), installedState(service, target));
+    return applied.id === service.id && applied.name === service.name && !hasAuthentication(service.configuration, platform)
+      && (platform !== 'win32' || (before.length === 1 && service.id === 'lan' && service.enabled && validWindowsConfiguration(service.configuration)))
+      && isDeepStrictEqual(serviceState(applied), installedState(service, target, platform));
   })) {
     throw new Error('Invalid proxy journal snapshots');
   }
-  return { version: 1, phase, target, before, installed };
+  return { version: 1, ...(value.platform ? { platform: value.platform as 'darwin' | 'win32' } : {}), phase, target, before, installed };
 }
 
 function matches(snapshot: ProxySnapshot, journal: Journal) {
@@ -134,13 +139,13 @@ function managedDetails(journal: Journal) {
   };
 }
 
-function summarize(snapshot: ProxySnapshot, journal?: Journal): SystemProxyStatus {
+function summarize(snapshot: ProxySnapshot, journal?: Journal, platform?: string): SystemProxyStatus {
   if (!journal) {
     const services = snapshot.services.filter(({ active, enabled, configuration }) =>
-      active && enabled && PROXY_ENABLE_KEYS.some((key) => {
+      active && enabled && (platform === 'win32' ? typeof configuration.flags === 'number' && (configuration.flags & 14) !== 0 : PROXY_ENABLE_KEYS.some((key) => {
         const flag = configuration[key];
         return flag === true || (typeof flag === 'number' && flag !== 0);
-      })).map(({ name }) => name);
+      }))).map(({ name }) => name);
     return { supported: true, managed: false, state: services.length ? 'external' : 'off', services };
   }
 
@@ -166,22 +171,22 @@ export class SystemProxyController {
   }
 
   status(): Promise<SystemProxyStatus> {
-    return this.run(async (journal) => summarize(await this.read(), journal));
+    return this.run(async (journal) => summarize(await this.read(), journal, this.adapter.platform));
   }
 
   enable(target: ProxyTarget): Promise<SystemProxyStatus> {
     return this.run(async (journal) => {
-      if (journal) return summarize(await this.read(), journal);
+      if (journal) return summarize(await this.read(), journal, this.adapter.platform);
       const normalized = normalizeTarget(target);
       const snapshot = await this.read();
       const active = snapshot.services.filter(({ active }) => active);
       if (!active.length) throw new ProxyOperationError(t("当前网络位置没有可设置代理的服务。", "The current network location has no services that support proxy configuration."));
-      if (active.some(({ configuration }) => hasAuthentication(configuration))) {
+      if (active.some(({ configuration }) => hasAuthentication(configuration, this.adapter.platform))) {
         throw new ProxyOperationError(t("现有 HTTP 或 HTTPS 代理包含认证设置，无法接管。", "The existing HTTP or HTTPS proxy uses authentication and cannot be managed by this app."));
       }
       const before = active.map(({ id, name, enabled, configuration }) => ({ id, name, enabled, configuration }));
-      const installed = before.map(({ id, name, ...state }) => ({ id, name, ...installedState(state, normalized) }));
-      const entry: Journal = { version: 1, phase: 'pending', target: normalized, before, installed };
+      const installed = before.map(({ id, name, ...state }) => ({ id, name, ...installedState(state, normalized, this.adapter.platform) }));
+      const entry: Journal = { version: 1, ...(this.adapter.platform === 'win32' ? { platform: 'win32' } as const : {}), phase: 'pending', target: normalized, before, installed };
       await this.saveJournal(entry);
       const changes = before.map((service, index) => ({
         id: service.id, expected: serviceState(service), next: serviceState(installed[index]),
@@ -203,18 +208,18 @@ export class SystemProxyController {
       }
       const confirmed: Journal = { ...entry, phase: 'active' };
       await this.saveJournal(confirmed);
-      return summarize(current, confirmed);
+      return summarize(current, confirmed, this.adapter.platform);
     });
   }
 
   disable(): Promise<SystemProxyStatus> {
     return this.run(async (journal) => {
       const snapshot = await this.read();
-      if (!journal) return summarize(snapshot);
+      if (!journal) return summarize(snapshot, undefined, this.adapter.platform);
       const states = matches(snapshot, journal);
       const changes: ProxyChange[] = [];
       for (const { original, current, before, installed } of states) {
-        if (!current || (!before && !installed)) return summarize(snapshot, journal);
+        if (!current || (!before && !installed)) return summarize(snapshot, journal, this.adapter.platform);
         changes.push({ id: original.id, expected: current, next: serviceState(original) });
       }
 
@@ -225,7 +230,7 @@ export class SystemProxyController {
       } catch (error) {
         const current = await this.read().catch(() => undefined);
         if (current && matches(current, journal).some((state) => !state.before && !state.installed)) {
-          return summarize(current, journal);
+          return summarize(current, journal, this.adapter.platform);
         }
         throw error;
       }
@@ -234,18 +239,18 @@ export class SystemProxyController {
         throw new ProxyOperationError(t("无法确认系统代理已恢复。恢复备份仍保留。", "Could not confirm restoration of the system proxy. The recovery backup is preserved."));
       }
       await this.removeJournal();
-      return summarize(current);
+      return summarize(current, undefined, this.adapter.platform);
     });
   }
 
   release(): Promise<SystemProxyStatus> {
     return this.run(async (journal) => {
       const snapshot = await this.read();
-      const current = summarize(snapshot, journal);
+      const current = summarize(snapshot, journal, this.adapter.platform);
       if (current.state !== 'changed') return current;
       await rename(this.journalPath, join(this.root, 'system-proxy.recovery-' + randomUUID() + '.json'));
       await this.syncRoot();
-      return summarize(snapshot);
+      return summarize(snapshot, undefined, this.adapter.platform);
     });
   }
 
@@ -280,7 +285,8 @@ export class SystemProxyController {
   private async read(): Promise<ProxySnapshot> {
     try {
       return await this.adapter.read();
-    } catch {
+    } catch (error) {
+      if (error instanceof WindowsSystemProxyError) throw new ProxyOperationError(error.message);
       throw new ProxyOperationError(t("无法读取系统代理设置。", "System proxy settings could not be read."));
     }
   }
@@ -289,6 +295,7 @@ export class SystemProxyController {
     try {
       await this.adapter.write(changes, location);
     } catch (error) {
+      if (error instanceof WindowsSystemProxyError) throw new ProxyOperationError(error.message);
       const message = error instanceof Error ? error.message : '';
       // The native adapter exposes stable codes. Keep legacy adapter messages
       // compatible without using translated display strings as identifiers.
@@ -307,13 +314,13 @@ export class SystemProxyController {
 
   private async readJournal(): Promise<Journal | undefined> {
     try {
-      const file = await open(this.journalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const file = await openRegularFile(this.journalPath);
       try {
         const stat = await file.stat();
-        if (!stat.isFile() || stat.size > MAX_JOURNAL_BYTES || (stat.mode & 0o077)) {
+        if (!stat.isFile() || stat.size > MAX_JOURNAL_BYTES || (process.platform !== 'win32' && (stat.mode & 0o077))) {
           throw new Error('Invalid proxy journal file');
         }
-        return parseJournal(await file.readFile());
+        return parseJournal(await file.readFile(), this.adapter.platform);
       } finally {
         await file.close();
       }
@@ -326,7 +333,7 @@ export class SystemProxyController {
     const bytes = Buffer.from(JSON.stringify(journal));
     if (bytes.length > MAX_JOURNAL_BYTES) throw new Error('Proxy journal too large');
     // Do not change preferences unless the journal can recover them after a restart.
-    if (!isDeepStrictEqual(parseJournal(bytes), journal)) throw new Error('Non-serializable proxy journal');
+    if (!isDeepStrictEqual(parseJournal(bytes, this.adapter.platform), journal)) throw new Error('Non-serializable proxy journal');
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const temp = this.journalPath + '.' + randomUUID() + '.tmp';
     const file = await open(temp, 'wx', 0o600);
@@ -351,13 +358,6 @@ export class SystemProxyController {
   }
 
   private async syncRoot(): Promise<void> {
-    const directory = await open(this.root, constants.O_RDONLY | constants.O_DIRECTORY);
-    try {
-      await directory.sync();
-    } catch (error) {
-      if (!hasCode(error, 'EINVAL', 'ENOTSUP')) throw error;
-    } finally {
-      await directory.close();
-    }
+    await syncDirectory(this.root);
   }
 }

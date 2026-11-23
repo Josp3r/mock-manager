@@ -134,7 +134,7 @@ try {
   assert.deepEqual(errors,[]);assert.deepEqual(consoleErrors,[]);
   await app.close();app=undefined;
   assert.deepEqual(JSON.parse(await readFile(fixture,'utf8')).snapshot,original);
-  await writeFile('test-results/i18n-result.json',JSON.stringify({passed:true,version:'0.1.4',pageErrors:errors,consoleErrors,
+  await writeFile('test-results/i18n-result.json',JSON.stringify({passed:true,version:JSON.parse(await readFile('package.json','utf8')).version,pageErrors:errors,consoleErrors,
     realProxyWrites:false,checks:['fresh nested profile','system default bootstrap','live Chinese/English switch','localized native menus/dialogs','invalid preference rejected','draft/user content/applied snapshot unchanged','real HTTP mock unchanged by language switch','English backend validation','notice rerenders in selected language','1080px English layout','preference survives restart']},null,2));
   console.log('PASS: bilingual desktop, native menus/dialogs, preserved drafts/real mock, restart and English layout.');
 } catch(error) {

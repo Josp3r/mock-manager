@@ -1,9 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import * as filesystem from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { configurationHash } from '../src/core/model';
 import { DataStore } from '../src/main/store';
+
+// Keep real I/O; only the OS boundary is substituted for Windows errors and races.
+vi.mock('node:fs/promises', async (original) => ({ ...await original<typeof filesystem>() }));
 
 const directories: string[] = [];
 
@@ -14,10 +18,49 @@ async function temporaryStore() {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await Promise.all(directories.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe('DataStore', () => {
+  it('loads, saves, and restarts on Windows without trying to open directories for fsync', async () => {
+    vi.stubGlobal('process', Object.create(process, { platform: { value: 'win32' } }));
+    const realOpen = filesystem.open;
+    vi.spyOn(filesystem, 'open').mockImplementation(async (path, flags, mode) => {
+      const info = await filesystem.lstat(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+      });
+      if (info?.isDirectory()) throw Object.assign(new Error('Windows does not open directories with fs.open'), { code: 'EISDIR' });
+      return realOpen(path, flags, mode);
+    });
+    const { root, store } = await temporaryStore();
+    const data = await store.load();
+    data.projects[0].name = 'Windows persisted project';
+    await store.save(data);
+    expect(await new DataStore(root).load()).toEqual(data);
+  });
+
+  it('recovers instead of consuming metadata replaced between the path check and open', async () => {
+    const { root, store } = await temporaryStore();
+    const initial = await store.load();
+    const replacement = structuredClone(initial);
+    replacement.projects[0].name = 'Unexpected replacement';
+    const staging = join(root, 'replacement.json');
+    const primary = join(root, 'data.json');
+    await writeFile(staging, JSON.stringify(replacement));
+    const realOpen = filesystem.open;
+    let replaced = false;
+    vi.spyOn(filesystem, 'open').mockImplementation(async (path, flags, mode) => {
+      if (path === primary && !replaced) {
+        replaced = true;
+        await filesystem.rename(staging, primary);
+      }
+      return realOpen(path, flags, mode);
+    });
+    expect(await store.load()).toEqual(initial);
+  });
+
   it('never reuses the fixture path when an applied response’s body changes', async () => {
     const { store } = await temporaryStore();
     const data = await store.load();

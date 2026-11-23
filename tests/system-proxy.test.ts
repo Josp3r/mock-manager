@@ -77,7 +77,7 @@ describe('SystemProxyController', () => {
     const inactive = { ...ethernet, active: false };
     const { adapter, controller, journal } = await setup([service, inactive]);
     adapter.nextWrite = async () => {
-      expect((await stat(journal)).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect((await stat(journal)).mode & 0o777).toBe(0o600);
       expect(await readFile(journal, 'utf8')).toContain('original.example');
     };
     const status = await controller.enable(target);
@@ -283,7 +283,7 @@ describe('SystemProxyController', () => {
     expect(archives).toHaveLength(1);
     const archive = join(root, archives[0]);
     expect(await readFile(archive)).toEqual(backup);
-    expect((await stat(archive)).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect((await stat(archive)).mode & 0o777).toBe(0o600);
     expect(adapter.attempts).toHaveLength(1);
     expect(await adapter.read()).toEqual(current);
   });

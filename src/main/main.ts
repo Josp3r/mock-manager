@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, type MenuItemConstructorOptions } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { join, resolve, isAbsolute } from 'node:path';
@@ -12,6 +12,7 @@ import { testProxyConnection } from './proxy-self-test';
 import { SyncController } from './sync';
 import { SystemProxyController } from './system-proxy';
 import { NativeSystemProxy } from './native-system-proxy';
+import { WindowsSystemProxy } from './windows-system-proxy';
 import { resolveDataPath } from './data-path';
 import { PreferenceStore } from './preferences';
 import { setLocale, t, type LanguageSettings } from '../shared/i18n';
@@ -36,9 +37,11 @@ const engine = new EmbeddedWhistle(dataRoot, join(__dirname, 'whistle-worker.cjs
 const controller = new SyncController(new DataStore(dataRoot), engine);
 let shutdownInProgress = false;
 const proxyHelperOverride = !app.isPackaged ? process.env.MOCK_MANAGER_PROXY_HELPER : undefined;
+const helperName = process.platform === 'win32' ? 'windows-system-proxy.ps1' : 'system-proxy';
 const proxyHelper = proxyHelperOverride && isAbsolute(proxyHelperOverride) ? proxyHelperOverride
-  : app.isPackaged ? join(process.resourcesPath, 'system-proxy') : join(__dirname, '../dist-native/system-proxy');
-const systemProxy = new SystemProxyController(dataRoot, new NativeSystemProxy(proxyHelper));
+  : app.isPackaged ? join(process.resourcesPath, helperName) : join(__dirname, '../dist-native', helperName);
+const systemProxy = new SystemProxyController(dataRoot, process.platform === 'win32'
+  ? new WindowsSystemProxy(proxyHelper) : new NativeSystemProxy(proxyHelper));
 const devUrl = !app.isPackaged ? process.env.MOCK_MANAGER_DEV_URL : undefined;
 const rendererPath = join(__dirname, '../dist/index.html');
 const trustedUrl = devUrl ? new URL(devUrl).href : pathToFileURL(rendererPath).href;
@@ -119,7 +122,8 @@ function setupIpc() {
 function createWindow() {
   window = new BrowserWindow({
     width:1440, height:940, minWidth:1080, minHeight:720,
-    title:'Mock Manager', titleBarStyle:'hiddenInset', trafficLightPosition:{x:20,y:20},
+    title:'Mock Manager',
+    ...(process.platform === 'darwin' ? { titleBarStyle:'hiddenInset' as const, trafficLightPosition:{x:20,y:20} } : {}),
     backgroundColor:'#ffffff', show:false,
     webPreferences:{preload:join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}
   });
@@ -163,15 +167,19 @@ async function openThirdPartyNotices() {
   });
 }
 function updateMenu() {
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: app.name, submenu: [
-      { role: 'about', label: t('关于 Mock Manager', 'About Mock Manager') },
-      { label: t('开源许可证', 'Open-source licenses'), click: () => { void openThirdPartyNotices(); } },
-      { type: 'separator' },
-      { role: 'hide', label: t('隐藏 Mock Manager', 'Hide Mock Manager') },
-      { role: 'hideOthers', label: t('隐藏其他应用', 'Hide Others') },
-      { role: 'unhide', label: t('显示全部', 'Show All') },
-      { type: 'separator' },
+  const mac = process.platform === 'darwin';
+  const macItems: MenuItemConstructorOptions[] = mac ? [
+    { role: 'about', label: t('关于 Mock Manager', 'About Mock Manager') },
+    { label: t('开源许可证', 'Open-source licenses'), click: () => { void openThirdPartyNotices(); } },
+    { type: 'separator' },
+    { role: 'hide', label: t('隐藏 Mock Manager', 'Hide Mock Manager') },
+    { role: 'hideOthers', label: t('隐藏其他应用', 'Hide Others') },
+    { role: 'unhide', label: t('显示全部', 'Show All') },
+    { type: 'separator' },
+  ] : [];
+  const template: MenuItemConstructorOptions[] = [
+    { label: mac ? app.name : t('文件', 'File'), submenu: [
+      ...macItems,
       { role: 'quit', label: t('退出 Mock Manager', 'Quit Mock Manager') },
     ] },
     { label: t('编辑', 'Edit'), submenu: [
@@ -182,13 +190,16 @@ function updateMenu() {
     ] },
     { label: t('窗口', 'Window'), submenu: [
       { role: 'minimize', label: t('最小化', 'Minimize') }, { role: 'zoom', label: t('缩放', 'Zoom') },
-      { role: 'front', label: t('前置全部窗口', 'Bring All to Front') },
+      mac ? { role: 'front', label: t('前置全部窗口', 'Bring All to Front') }
+        : { role: 'close', label: t('关闭窗口', 'Close Window') },
     ] },
     { label: t('帮助', 'Help'), submenu: [
       { label: t('HTTPS 配置文档', 'HTTPS setup guide'), click: () => { void shell.openExternal('https://wproxy.org/docs/gui/https.html'); } },
       { label: t('开源许可证', 'Open-source licenses'), click: () => { void openThirdPartyNotices(); } },
+      ...(!mac ? [{ role: 'about' as const, label: t('关于 Mock Manager', 'About Mock Manager') }] : []),
     ] },
-  ]));
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 if (gotLock) {
   let quitPermitted = false;

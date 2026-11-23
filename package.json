@@ -1,6 +1,6 @@
 {
   "name": "mock-manager",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
   "description": "Personal desktop API mock and scenario manager",
   "author": "Mock Manager",
@@ -15,10 +15,16 @@
     "typecheck": "tsc --noEmit",
     "test:integration": "node --import tsx scripts/integration.ts",
     "test:desktop": "node scripts/desktop-test.mjs",
-    "package:mac": "npm run build && electron-builder --mac dir --arm64 && node scripts/sign-local.mjs",
+    "package:mac": "npm run build && node scripts/package-app.mjs --platform darwin",
     "test:system-proxy:desktop": "node --import tsx scripts/system-proxy-desktop-test.mjs",
     "test:engine": "node scripts/build-electron.mjs && node scripts/embedded-engine-test.mjs",
-    "test:i18n:desktop": "node scripts/i18n-desktop-test.mjs"
+    "test:i18n:desktop": "node scripts/i18n-desktop-test.mjs",
+    "package:mac:arm64": "npm run build && node scripts/package-app.mjs --platform darwin --arch arm64",
+    "package:mac:x64": "npm run build && node scripts/package-app.mjs --platform darwin --arch x64",
+    "package:win": "npm run build && node scripts/package-app.mjs --platform win32 --arch x64",
+    "test:packaged": "node scripts/packaged-test.mjs",
+    "test:windows-proxy:native": "node --import tsx scripts/windows-proxy-native-test.mjs",
+    "archive:release": "node scripts/archive-release.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -52,20 +58,22 @@
       "package.json"
     ],
     "asar": true,
-    "electronDist": "node_modules/electron/dist",
     "mac": {
       "category": "public.app-category.developer-tools",
       "identity": null,
       "icon": "assets/icon.png",
       "target": [
         "dir"
-      ]
+      ],
+      "extraResources": [
+        {
+          "from": "dist-native/system-proxy",
+          "to": "system-proxy"
+        }
+      ],
+      "minimumSystemVersion": "13.0"
     },
     "extraResources": [
-      {
-        "from": "dist-native/system-proxy",
-        "to": "system-proxy"
-      },
       {
         "from": "THIRD-PARTY-NOTICES.txt",
         "to": "THIRD-PARTY-NOTICES.txt"
@@ -74,6 +82,31 @@
         "from": "LICENSE",
         "to": "LICENSE.txt"
       }
-    ]
+    ],
+    "publish": null,
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "extraResources": [
+        {
+          "from": "src/native/windows-system-proxy.ps1",
+          "to": "windows-system-proxy.ps1"
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "Mock-Manager-${version}-win-${arch}-setup.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

@@ -18,11 +18,13 @@ export function Settings({ workspace, close, restore, dataOnly }: {
     systemProxy, systemProxyError, setSystemProxy, releaseSystemProxy,
   } = workspace;
   const language = useLanguage();
+  const mac = window.mockManager?.platform === 'darwin';
+  const windows = window.mockManager?.platform === 'win32';
   const [languageSaving, setLanguageSaving] = useState(false);
   const [languageError, setLanguageError] = useState('');
   const [confirmRelease, setConfirmRelease] = useState(false);
-  const proxyCopy = !systemProxy ? t('正在读取 macOS 代理设置…', 'Reading macOS proxy settings…')
-    : !systemProxy.supported ? t('系统代理开关仅支持 macOS。', 'System proxy control is available on macOS only.')
+  const proxyCopy = !systemProxy ? t('正在读取系统代理设置…', 'Reading system proxy settings…')
+    : !systemProxy.supported ? t('系统代理开关支持 macOS 和 Windows。', 'System proxy control is available on macOS and Windows.')
     : systemProxy.state === 'on' ? t('已接管 HTTP/HTTPS → {address}', 'Managing HTTP/HTTPS → {address}', { address: systemProxy.address ?? '' })
     : systemProxy.state === 'changed' ? t('配置已变更或操作未完成，可尝试关闭开关恢复。', 'Settings changed or an operation is incomplete. Turn off the switch to try restoring them.')
     : systemProxy.state === 'external' ? t('当前使用外部配置；开启后会保存原配置。', 'Using external settings. Turning this on saves the current configuration.')
@@ -65,17 +67,20 @@ export function Settings({ workspace, close, restore, dataOnly }: {
             <span>{engineStatus}</span>
             {status?.running && status.address && !statusError && <code>{status.address}</code>}
           </div>
-          <span>{t('打开应用时自动启动。关闭窗口后继续运行。', 'Starts with the app and keeps running when the window is closed.')}</span>
+          <span>{mac ? t('打开应用时自动启动。关闭窗口后继续运行。', 'Starts with the app and keeps running when the window is closed.')
+            : t('打开应用时自动启动。关闭应用时恢复系统代理并停止引擎。', 'Starts with the app. Closing the app restores the system proxy and stops the engine.')}</span>
         </>}>
           <Button onClick={() => void refresh()} disabled={!!busy}><RefreshCw size={14} aria-hidden="true" /> {t('刷新', 'Refresh')}</Button>
           {(statusError || status && !status.running) && <Button onClick={start} disabled={!!busy}>{t('重试启动', 'Retry start')}</Button>}
         </Setting>
         <Setting name={t('HTTPS 根证书', 'HTTPS root certificate')} value={<>
-          <span>{t('在 macOS 上双击导出的 .crt 文件，添加到「登录」钥匙串。打开证书的「信任」选项，选择「始终信任」，然后重启浏览器。', 'On macOS, open the exported .crt file and add it to the login keychain. Open its Trust settings, choose Always Trust, then restart your browser.')}</span>
+          <span>{mac ? t('在 macOS 上双击导出的 .crt 文件，添加到「登录」钥匙串。打开证书的「信任」选项，选择「始终信任」，然后重启浏览器。', 'On macOS, open the exported .crt file and add it to the login keychain. Open its Trust settings, choose Always Trust, then restart your browser.')
+            : windows ? t('双击导出的 .crt 文件，选择「安装证书」→「当前用户」，将证书放入「受信任的根证书颁发机构」，然后重启浏览器。', 'Open the exported .crt file, choose Install Certificate → Current User, and place it in Trusted Root Certification Authorities. Then restart your browser.')
+            : t('将导出的公开根证书导入系统或浏览器的受信任证书存储，然后重启浏览器。', 'Import the exported public root certificate into your system or browser trust store, then restart the browser.')}</span>
           {status?.running && status.httpsEnabled !== undefined && <span>
             {status.httpsEnabled
-              ? t('HTTPS 解密已开启。证书信任状态请在钥匙串访问中确认。', 'HTTPS decryption is enabled. Check certificate trust in Keychain Access.')
-              : t('HTTPS 解密未开启。证书信任状态请在钥匙串访问中确认。', 'HTTPS decryption is disabled. Check certificate trust in Keychain Access.')}
+              ? t('HTTPS 解密已开启。请在系统证书管理器中确认信任状态。', 'HTTPS decryption is enabled. Check trust in your system certificate manager.')
+              : t('HTTPS 解密未开启。请在系统证书管理器中确认信任状态。', 'HTTPS decryption is disabled. Check trust in your system certificate manager.')}
           </span>}
         </>}>
           <Button onClick={exportCertificate} disabled={!status?.running || !!statusError || !!busy}>
@@ -101,7 +106,9 @@ export function Settings({ workspace, close, restore, dataOnly }: {
               <Button onClick={() => { setConfirmRelease(false); releaseSystemProxy(); }} disabled={!!busy}>{t('确认保留', 'Confirm keep')}</Button></div>
           </>}
         </div>}
-        <p className="muted settings-note">{t('开启系统代理后，浏览器请选择使用系统代理，避免扩展覆盖。关闭开关或退出应用时会恢复本应用接管前的配置。macOS 可能要求授权，恢复失败时应用会暂停退出。', 'Set your browser to use the system proxy and make sure extensions do not override it. Turning this off or quitting the app restores the previous settings. macOS may request authorization; if restoration fails, the app stays open.')}</p>
+        <p className="muted settings-note">{t('开启系统代理后，浏览器请选择使用系统代理，避免扩展覆盖。关闭开关或退出应用时会恢复本应用接管前的配置；恢复失败时应用会暂停退出。', 'Set your browser to use the system proxy and make sure extensions do not override it. Turning this off or quitting the app restores the previous settings; if restoration fails, the app stays open.')}
+          {' '}{mac ? t('macOS 可能要求授权。', 'macOS may request authorization.')
+            : windows ? t('Windows 仅管理当前用户的系统 Internet 代理，使用独立代理配置的应用不受此开关控制。', 'On Windows, this manages the current user’s system Internet proxy. Apps with their own proxy settings are unaffected.') : ''}</p>
         <Setting name={t('代理连接测试', 'Proxy connection test')} value={<>
           <span>{t('向本地服务发出一条经过本地代理引擎的 HTTP 请求。浏览器是否使用系统代理、HTTPS 证书是否受信任，请在浏览器中确认。', 'Sends an HTTP request through the local proxy to a local service. Check browser routing and HTTPS certificate trust separately in your browser.')}</span>
           {status?.running && !statusError && connectionTest && <span

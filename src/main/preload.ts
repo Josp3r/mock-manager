@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { AppData, DesktopBridge } from '../shared/types';
 const bridge: DesktopBridge = {
+  platform: process.platform === 'darwin' || process.platform === 'win32' ? process.platform : 'other',
   getLanguage: () => ipcRenderer.invoke('manager:getLanguage'),
   setLanguage: preference => ipcRenderer.invoke('manager:setLanguage', preference),
   load: () => ipcRenderer.invoke('manager:load'),

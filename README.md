@@ -17,15 +17,15 @@ Mock Manager organizes **projects → endpoints → response scenarios**. A bund
 - Configure JSON bodies, status codes, response headers, and delays.
 - Enable individual endpoints or restore a project's saved preset.
 - Save drafts automatically and apply them explicitly when ready.
-- Manage the macOS system proxy and restore its previous settings when disabled or when the app quits.
+- Manage the macOS or Windows system proxy and restore its previous settings when disabled or when the app quits.
 - Keep projects, drafts, and response bodies in local application storage. No account is required.
 
-The current packaged target is **macOS on Apple Silicon**. A packaged app includes its proxy engine and does not require Node.js, npm, or a separate `w2` installation. See [Build from source](#build-from-source) to create the app.
+Build targets are **macOS 13+ on Apple Silicon or Intel**, and **Windows 10/11 x64**. A packaged app includes its proxy engine and does not require Node.js, npm, or a separate `w2` installation. See [Build from source](#build-from-source) to create the app.
 
 ## First use
 
-1. Open **Mock Manager.app**. Its local engine starts automatically. Open **Settings** to view the engine address and status.
-2. For HTTPS requests, select **Export certificate**. On macOS, open the exported `.crt`, add it to the **login** keychain, open its **Trust** settings, and select **Always Trust**. Restart the browser afterward. HTTPS decryption is enabled in the bundled engine; certificate trust is a separate manual step.
+1. Open **Mock Manager**. Its local engine starts automatically. Open **Settings** to view the engine address and status.
+2. For HTTPS requests, select **Export certificate**. On macOS, open the exported `.crt`, add it to the **login** keychain, open its **Trust** settings, and select **Always Trust**. On Windows, open the exported `.crt`, choose **Install Certificate → Current User**, and select **Trusted Root Certification Authorities** as its store. Restart the browser afterward. HTTPS decryption is enabled in the bundled engine; certificate trust is a separate manual step.
 3. Turn on **System proxy** in the topbar or Settings. Your browser must use the system proxy; configure proxy extensions accordingly. You can also configure a client manually with the address shown in Settings.
 4. Select **Test connection** to verify a local HTTP request through the bundled proxy. This test does not verify browser routing or HTTPS certificate trust.
 5. Create a project and an endpoint. Enter the full original URL and HTTP method, then configure response scenarios.
@@ -33,7 +33,7 @@ The current packaged target is **macOS on Apple Silicon**. A packaged app includ
 
 The initial example uses `api.example.test`, with all endpoints disabled. **Applied** means that the rules were written and verified by reading them back; requests still need to reach the proxy.
 
-For a local ad-hoc signed build, macOS may require you to allow the app under **System Settings → Privacy & Security** or use Finder's **Open** action. These builds are not Apple-notarized. Do not disable system security settings.
+For a local ad-hoc signed build, macOS may require you to allow the app under **System Settings → Privacy & Security** or use Finder's **Open** action. These builds are not Apple-notarized. Windows builds are not Authenticode-signed. Do not disable system security settings.
 
 ## Language
 
@@ -54,7 +54,7 @@ Edits are saved as drafts. **Apply changes** is what updates proxy responses. In
 
 A project preset captures endpoint enabled states and selected scenarios. Loading a preset changes the draft and still requires Apply. Backup export includes projects, endpoints, scenarios, and presets. Import creates new IDs and disables imported endpoints; it does not import certificates or system-proxy state.
 
-Closing the macOS window leaves the engine running. Quitting the app with **⌘Q** saves pending drafts, restores the system proxy if the app manages it, and then stops the engine. If restoration is cancelled or conflicts with external changes, the app stays open. Previously applied rules remain available after restarting; turn the system proxy on again when needed.
+Closing the macOS window leaves the engine running. Quitting on macOS with **⌘Q**, or closing the Windows app, saves pending drafts, restores the system proxy if the app manages it, and then stops the engine. If restoration is cancelled or conflicts with external changes, the app stays open. Previously applied rules remain available after restarting; turn the system proxy on again when needed.
 
 ## Matching and limits
 
@@ -65,15 +65,17 @@ Closing the macOS window leaves the engine running. Quitting the app with **⌘Q
 | Responses | JSON body, custom headers, status codes 200–599 |
 | Delay | 0–60,000 ms per scenario |
 | Organization | Projects, modules, endpoints, scenarios, presets, JSON backups |
-| Platform | Packaged macOS Apple Silicon app; system-proxy control is macOS-only |
+| Platform | macOS arm64/x64 and Windows x64; system-proxy control on both operating systems |
 
 Query parameters pasted into the endpoint URL become query conditions. Path placeholders such as `:id`, wildcard/regex URL matching, request-body matching, response scripts, and cloud sync are not currently supported by the interface.
 
 ## System proxy and recovery
 
-When enabled, the app saves the current network location's proxy configuration, points HTTP and HTTPS to its local engine, temporarily disables PAC, auto-discovery, and SOCKS, and preserves the bypass list. macOS may request authorization. Turning the switch off or quitting restores the original configuration, including when the local engine has stopped.
+On macOS, the app saves the current network location's proxy configuration, points HTTP and HTTPS to its local engine, temporarily disables PAC, auto-discovery, and SOCKS, and preserves the bypass list. macOS may request authorization. Turning the switch off or quitting restores the original configuration, including when the local engine has stopped.
 
 If another program changes those settings, restoration pauses rather than overwriting the external change. Resolve the conflict and retry, or choose **Keep current settings → Confirm keep** to stop managing the proxy without changing its current settings. The saved original configuration is retained. Existing HTTP/HTTPS proxy configurations containing authentication metadata are not currently supported for takeover.
+
+On Windows, the app manages the current user’s Internet/WinINet LAN settings. It preserves the proxy server, bypass list, PAC URL and detection flags, points HTTP/HTTPS to the local engine, and restores the original settings on disable or quit. Machine-wide proxy policy and locked settings are rejected. It does not change WinHTTP, VPN-specific or application-specific proxy configurations.
 
 The system proxy affects only applications that follow system proxy settings. The app does not read or write keychain passwords or automatically trust its root certificate.
 
@@ -82,14 +84,15 @@ The system proxy affects only applications that follow system proxy settings. Th
 The default data directory is:
 
 ```text
-~/Library/Application Support/Whistle Mock Manager/
+macOS:   ~/Library/Application Support/Whistle Mock Manager/
+Windows: %APPDATA%\Whistle Mock Manager\
 ```
 
 The legacy folder name is intentionally retained for upgrade compatibility. It contains drafts, recovery files, response fixtures, language preferences, and the private engine's `proxy-engine/` directory. Use **Open data folder** in Settings to find it. After an abnormal exit, proxy recovery information remains available on the next launch.
 
 ## Upgrading
 
-Quit an older version before launching the new app so the single-instance lock does not hand the launch back to the old version. Version 0.1.4 keeps the existing app identity and data directory and adds language selection; existing projects and bundled-engine certificates continue to work.
+Quit an older version before launching the new app so the single-instance lock does not hand the launch back to the old version. Version 0.2.0 adds Intel Mac and Windows builds while retaining the existing app identity, data directory and language selection; existing projects and bundled-engine certificates continue to work.
 
 All users use the bundled engine. Older external `w2` connections are no longer read; external Whistle processes and rules are left alone. When upgrading from an external-engine version, reapply your draft or restore the last snapshot, and configure the new bundled-engine certificate and address. If the system proxy still points to an old address, turn it off to restore the previous configuration before turning it on again.
 
@@ -97,7 +100,7 @@ If another process occupies the assigned local port, free that port and select *
 
 ## Build from source
 
-Use Node.js **22.12+** and npm. Building the macOS system-proxy helper also requires **Xcode Command Line Tools**.
+Use Node.js **22.12+** and npm. Building the macOS system-proxy helper also requires **Xcode Command Line Tools**. Windows uses the built-in **Windows PowerShell 5.1**. Build on the target operating system.
 
 ```sh
 git clone https://github.com/Josp3r/mock-manager.git
@@ -108,13 +111,21 @@ npm run dev
 
 The lockfile fixes dependency versions. `--legacy-peer-deps` avoids an npm 10 optional peer-dependency resolution issue in the test toolchain.
 
-Build a local macOS Apple Silicon app:
+Build an app for the desired architecture:
 
 ```sh
-npm run package:mac
+# On macOS
+npm run package:mac:arm64
+npm run package:mac:x64
+# On Windows x64
+npm run package:win
 ```
 
-The app is written to `release/mac-arm64/Mock Manager.app`. The packaging script applies and verifies a local ad-hoc signature; it does not perform Apple Developer ID signing or notarization.
+Unpacked apps are written to `release/mac-arm64/Mock Manager.app`, `release/mac/Mock Manager.app` (Intel), or `release/win-unpacked/Mock Manager.exe`. The Mac packaging script verifies runtime/helper architecture and a local ad-hoc signature; it does not perform Apple Developer ID signing or notarization.
+
+After testing the unpacked app, create distribution archives with `npm run archive:release -- --platform darwin --arch arm64` (use `x64` for Intel, or `--platform win32 --arch x64` on Windows). Windows artifacts include an NSIS installer and a portable ZIP. Artifacts and SHA-256 files are written to `release/`.
+
+The GitHub Actions build matrix tests each target on a matching native runner before archiving. Pushes and pull requests retain downloadable build artifacts. Pushing a matching `v*` tag creates a **draft** GitHub Release only after all targets pass; review its notes and assets before publishing.
 
 ## Verification
 
@@ -129,10 +140,10 @@ npm run test:system-proxy:desktop
 npm run test:i18n:desktop
 node --import tsx scripts/design-preview.mjs
 npm run package:mac
-node scripts/packaged-test.mjs
+npm run test:packaged -- "release/mac-arm64/Mock Manager.app"
 ```
 
-Proxy integration tests use the pinned Whistle version and a local test backend, not production endpoints. Desktop tests use isolated data directories. System-proxy interaction tests use a fixture helper rather than changing real OS proxy settings or certificate trust. The packaged-app test uses the real native helper for read-only status checks.
+Proxy integration tests use the pinned Whistle version and a local test backend, not production endpoints. Desktop tests use isolated data directories. System-proxy interaction tests use a fixture helper rather than changing real OS proxy settings or certificate trust. The packaged-app test uses the real native helper for read-only status checks. The Windows native proxy mutation test is opt-in and runs only on disposable CI machines, with restoration in `finally`; it must not be run on a personal workstation. The macOS desktop fixture scripts remain macOS-specific; native CI uses the portable packaged smoke test on all three targets.
 
 During development, `MOCK_MANAGER_DATA_DIR=/absolute/path` selects an isolated data directory and `MOCK_MANAGER_PROXY_HELPER` overrides the proxy helper for tests. Packaged apps ignore those overrides; use Electron's `--user-data-dir=<absolute-path>` argument for an isolated packaged profile.
 

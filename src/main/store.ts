@@ -1,11 +1,11 @@
 import { t } from '../shared/i18n';
 import { createHash, randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
 import { link, lstat, mkdir, open, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { activeRoutes, createInitialData, validateData, validateProjects } from '../core/model';
 import type { FixturePath } from '../core/compiler';
 import type { AppData, Project } from '../shared/types';
+import { openRegularFile, syncDirectory, UnsafeFileError } from './filesystem';
 
 export interface ProjectBackup {
   schemaVersion: 1;
@@ -29,18 +29,6 @@ function isError(error: unknown, ...codes: string[]): boolean {
   return error instanceof Error && codes.includes((error as NodeJS.ErrnoException).code ?? '');
 }
 
-async function syncDirectory(path: string): Promise<void> {
-  const directory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY);
-  try {
-    await directory.sync();
-  } catch (error) {
-    // Some filesystems cannot sync a directory handle.
-    if (!isError(error, 'EINVAL', 'ENOTSUP')) throw error;
-  } finally {
-    await directory.close();
-  }
-}
-
 async function putFile(path: string, content: string | Buffer, replace: boolean): Promise<void> {
   const temp = path + '.' + randomUUID() + '.tmp';
   const file = await open(temp, 'wx', 0o600);
@@ -61,10 +49,10 @@ async function putFile(path: string, content: string | Buffer, replace: boolean)
   }
 }
 
-class InvalidFile extends Error {}
+class InvalidFile extends UnsafeFileError {}
 
 async function getFile(path: string, maxSize: number): Promise<Buffer> {
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const file = await openRegularFile(path);
   try {
     const info = await file.stat();
     if (!info.isFile() || info.size > maxSize) throw new InvalidFile(t("文件格式或大小无效", "Invalid file format or size"));
@@ -82,7 +70,7 @@ async function readMetadata(path: string): Promise<Stored> {
     content = await getFile(path, MAX_DATA_BYTES);
   } catch (error) {
     if (isError(error, 'ENOENT')) return { broken: false };
-    if (error instanceof InvalidFile || isError(error, 'ELOOP')) return { broken: true };
+    if (error instanceof UnsafeFileError || isError(error, 'ELOOP')) return { broken: true };
     throw error;
   }
   try {
@@ -138,7 +126,7 @@ async function fixtureMatches(path: string, expected: Buffer): Promise<boolean> 
     return expected.equals(await getFile(path, expected.length));
   } catch (error) {
     if (isError(error, 'ENOENT')) return false;
-    if (error instanceof InvalidFile || isError(error, 'ELOOP')) throw new InvalidFixture(path, t("校验失败", "failed validation"));
+    if (error instanceof UnsafeFileError || isError(error, 'ELOOP')) throw new InvalidFixture(path, t("校验失败", "failed validation"));
     throw error;
   }
 }

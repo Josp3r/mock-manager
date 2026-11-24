@@ -3,12 +3,32 @@ const { EventEmitter } = require('node:events');
 const { createRequire } = require('node:module');
 const { basename, dirname, join } = require('node:path');
 const fs = require('node:fs');
+const childProcess = require('node:child_process');
 const workerPath = process.argv[2];
 const workerRequire = createRequire(workerPath);
 
+// Make the real background service available on every OS. Without this,
+// POSIX's empty PATH can hide the detached-process leak that Windows exposes.
+process.env.PFORK_EXEC_PATH = process.execPath;
+const servicePath = workerRequire.resolve('whistle/lib/service/service');
+const spawn = childProcess.spawn;
+childProcess.spawn = function (file, args, options) {
+  const child = spawn.call(this, file, args, options);
+  let script;
+  try { script = JSON.parse(decodeURIComponent(args.at(-1))).script; } catch {}
+  if (script === servicePath && child.pid) {
+    // Record only the PID; arguments include private engine credentials.
+    fs.appendFileSync(join(process.env.WHISTLE_PATH, 'test-service-pids'), child.pid + '\n');
+  }
+  return child;
+};
+
 process.parentPort = new EventEmitter();
 process.parentPort.postMessage = message => process.send(message);
-process.on('message', data => process.parentPort.emit('message', { data }));
+process.on('message', data => {
+  if (data.type === 'test-parent-close') process.parentPort.emit('close');
+  else process.parentPort.emit('message', { data });
+});
 process.on('disconnect', () => process.parentPort.emit('close'));
 
 if (process.env.MM_TEST_START_FAULT === 'missing-root') delete process.env.WHISTLE_PATH;

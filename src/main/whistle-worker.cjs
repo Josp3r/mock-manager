@@ -1,5 +1,6 @@
 const { createServer } = require('node:http');
 const { once } = require('node:events');
+const { createRequire } = require('node:module');
 const { isAbsolute } = require('node:path');
 
 const parent = process.parentPort;
@@ -7,6 +8,14 @@ const server = createServer();
 
 let flushStorage;
 let stopRequest;
+
+function exitWorker() {
+  // Whistle starts this detached service even with plugins disabled. Its
+  // heartbeat can outlive us and keep the Windows profile directory locked.
+  const script = require.resolve('whistle/lib/service/service');
+  createRequire(script)('pfork').kill({ script });
+  process.exit(0);
+}
 
 parent.on('message', ({ data }) => {
   if (data.type === 'stop') {
@@ -23,10 +32,10 @@ parent.on('message', ({ data }) => {
   } else if (data.type === 'exit' && stopRequest?.ready && stopRequest.id === data.id) {
     server.close();
     server.closeAllConnections();
-    process.exit(0);
+    exitWorker();
   }
 });
-parent.once('close', () => process.exit(0));
+parent.once('close', exitWorker);
 
 async function start({ port, authKey, username, password }) {
   if (!isAbsolute(process.env.WHISTLE_PATH || '')) {

@@ -13,6 +13,23 @@ let profile: string;
 let startFault = '';
 const children: { child: ChildProcess; closed: Promise<void> }[] = [];
 
+async function servicePids(): Promise<number[]> {
+  try {
+    return (await readFile(join(profile, 'proxy-engine', 'test-service-pids'), 'utf8')).trim().split('\n').map(Number);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+function processExists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
 beforeEach(async () => {
   setLocale('en');
   startFault = '';
@@ -33,9 +50,22 @@ beforeEach(async () => {
 
 afterEach(async () => {
   setLocale('zh-CN');
+  // Failed assertions must not leave the real detached service behind. The
+  // lifecycle regression below checks its exit before this fallback runs.
+  for (const pid of await servicePids()) {
+    try { process.kill(pid); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+  }
   await Promise.all(children.splice(0).map(async ({ child, closed }) => {
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    await closed;
+    const killed = child.exitCode === null && child.signalCode === null ? child.kill() : undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([closed, new Promise<void>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('Worker handles did not close: ' + JSON.stringify({
+          exitCode: child.exitCode, signalCode: child.signalCode, connected: child.connected, killed,
+        }))), 3000);
+      })]);
+    } finally { clearTimeout(timeout); }
   }));
   // Windows may release the child's working-directory handle just after close.
   // Retry transient filesystem locks briefly; persistent failures still fail.
@@ -50,6 +80,17 @@ afterEach(async () => {
 const engine = () => new EmbeddedWhistle(profile, resolve('src/main/whistle-worker.cjs'));
 
 describe('worker errors in the selected language', () => {
+  it.each(['stop', 'parent-close'])('stops the real detached Whistle service on %s', async (method) => {
+    const proxy = engine();
+    await proxy.start(BUILTIN_WHISTLE);
+    await expect.poll(async () => (await servicePids()).length).toBe(1);
+    const [pid] = await servicePids();
+    expect(processExists(pid)).toBe(true);
+    if (method === 'stop') await proxy.stop();
+    else children.at(-1)!.child.send({ type: 'test-parent-close' });
+    await expect.poll(() => processExists(pid), { timeout: 2000 }).toBe(false);
+  });
+
   it.each([
     ['missing-root', /isolated configuration directory/i],
     ['storage-version', /incompatible/i],

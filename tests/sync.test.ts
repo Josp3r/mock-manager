@@ -171,7 +171,9 @@ describe('managed Whistle synchronization', () => {
     await expect(controller.apply()).rejects.toThrow(/32 MiB/);
     expect(engine.calls.add).toBe(0);
     expect((await store.load()).lastApplied).toBeUndefined();
-  });
+  // This exercises real 18 MB disk persistence and a >32 MiB snapshot; the
+  // default 5 s budget is too short on shared Intel CI, even with correct I/O.
+  }, 20_000);
 
   it('rolls back a live replacement when its readback fails', async () => {
     await active();

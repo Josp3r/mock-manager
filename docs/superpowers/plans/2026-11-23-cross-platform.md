@@ -10,7 +10,7 @@
 
 **Spec:** [Cross-platform design](../specs/2026-11-23-cross-platform-design.md)
 
-**Status as of 2026-11-24:** Implementation is present. The first CI run for `d98299e` passed both Mac targets; Windows stopped at a worker-cleanup `EBUSY` failure. That cleanup fix and additional review corrections are in the working tree and await a new run. Checked implementation tasks below do not certify the latest working tree or final release. See the [verification record](../verification/2026-11-24-cross-platform.md).
+**Status:** Implementation and native verification are complete at `0cbf28d`. All three jobs passed in [run 45319826675](https://github.com/Josp3r/mock-manager/actions/runs/45319826675). See the [verification record](../verification/2026-11-24-cross-platform.md).
 
 ## Global Constraints
 
@@ -33,7 +33,7 @@
 - [x] Add failing tests for Windows state mapping, takeover/restore/conflict and journal compatibility.
 - [x] Implement Windows adapter and native helper, controller strategy and platform-aware journal validation.
 - [x] Verify initial unit tests and provide disposable Windows native test script for CI.
-- [ ] Pass the real Windows helper and change/restore tests on the final CI revision.
+- [x] Pass the real Windows helper and change/restore tests on the final CI revision.
 
 Files: system-proxy controller/types, new Windows adapter/helper/tests. Interface: WindowsSystemProxy(helperPath) implements SystemProxyAdapter; existing macOS adapter remains usable.
 
@@ -42,7 +42,7 @@ Files: system-proxy controller/types, new Windows adapter/helper/tests. Interfac
 - [x] Reproduce Windows drive path rejection and directory sync/mode portability failures with targeted tests.
 - [x] Implement verified drive file rules and shared durable file helper; preserve POSIX semantics.
 - [x] Verify real Whistle decoding and initial tests; communicate shared syncDirectory(path) helper to Task 1.
-- [ ] Verify real Windows fixture loading on the final native CI revision.
+- [x] Verify real Windows fixture loading on the final native CI revision.
 
 Files: compiler, store, new filesystem helper and tests; no system-proxy.ts edits (coordinate with Task 1).
 
@@ -61,6 +61,6 @@ Files: package metadata, build/sign/package scripts, workflow. Root owns package
 - [x] Push the initial implementation and complete the first Mac arm64/x64 CI jobs.
 - [x] Implement the Windows worker-cleanup fix for the first CI `EBUSY` failure.
 - [x] Update bilingual README with platform-specific build/test commands and verification limits.
-- [ ] Finish validating review corrections with unit/build/integration/desktop tests.
-- [ ] Push the corrected revision, pass all three native CI jobs, and record that exact revision and its artifacts/checksums.
-- [ ] Prepare final delivery copies and source archives; confirm they exclude runtime profiles/private keys.
+- [x] Finish validating review corrections with unit/build/integration/desktop tests.
+- [x] Push the corrected revision, pass all three native CI jobs, and record that exact revision and its artifacts/checksums.
+- [x] Prepare final delivery copies and source archives; confirm they exclude runtime profiles/private keys.

@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 import { _electron as electron } from 'playwright';
 import { access, mkdtemp, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -46,7 +47,7 @@ try {
   assert.equal(await toggle().isChecked(), false);
   assert.deepEqual((await read()).snapshot, original);
   await toggle().click();
-  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
+  await waitForPageCondition(page, async () => (await window.mockManager.systemProxyStatus()).state === 'on', { description: 'system proxy enabled' });
   const installed = (await read()).snapshot.services[0].configuration;
   assert.equal(installed.HTTPPort, proxy.port); assert.equal(installed.HTTPSPort, proxy.port);
   assert.equal(installed.ProxyAutoConfigEnable, 0); assert.equal(installed.SOCKSEnable, 0);
@@ -57,10 +58,10 @@ try {
   const toolbarToggle = () => page.locator('.topbar').getByRole('switch', { name: '系统代理', exact: true });
   assert.equal(await toolbarToggle().isChecked(), true);
   await toolbarToggle().click();
-  await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
+  await waitForPageCondition(page, async () => !(await window.mockManager.systemProxyStatus()).managed, { description: 'system proxy released' });
   assert.deepEqual((await read()).snapshot, original);
   await toolbarToggle().click();
-  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
+  await waitForPageCondition(page, async () => (await window.mockManager.systemProxyStatus()).state === 'on', { description: 'system proxy enabled' });
   const editor = page.getByLabel('响应体 JSON', { exact: true });
   await editor.fill('{"beforeCancelledQuit":true}');
   // Cancellation of quit restoration must leave the engine and app alive.
@@ -128,12 +129,12 @@ try {
   assert.ok(saved.includes('beforeSlowQuit'));
   assert.ok(!saved.includes('lateQuitEdit'));
   app = await launch(); page = await settings();
-  await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
+  await waitForPageCondition(page, async () => !(await window.mockManager.systemProxyStatus()).managed, { description: 'system proxy released' });
   assert.equal(await toggle().isChecked(), false);
   assert.deepEqual((await read()).snapshot, original);
 
   await toggle().click();
-  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
+  await waitForPageCondition(page, async () => (await window.mockManager.systemProxyStatus()).state === 'on', { description: 'system proxy enabled' });
   const changed = await read(); changed.snapshot.services[0].configuration.HTTPProxy = 'external.example';
   await writeFile(fixture, JSON.stringify(changed));
   await page.getByRole('button', { name: '刷新', exact: true }).click();
@@ -142,17 +143,17 @@ try {
   assert.deepEqual((await read()).snapshot, changed.snapshot);
   await page.getByRole('button', { name: '保留当前设置', exact: true }).click();
   await page.getByRole('button', { name: '确认保留', exact: true }).click();
-  await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
+  await waitForPageCondition(page, async () => !(await window.mockManager.systemProxyStatus()).managed, { description: 'system proxy released' });
   assert.deepEqual((await read()).snapshot, changed.snapshot);
 
   await toggle().click();
-  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
+  await waitForPageCondition(page, async () => (await window.mockManager.systemProxyStatus()).state === 'on', { description: 'system proxy enabled' });
   await app.evaluate(({app})=>{const engine=app.getAppMetrics().find(x=>x.name==='Bundled Whistle'); if(!engine)throw Error('engine missing'); process.kill(engine.pid,'SIGKILL');});
   await page.getByRole('button', { name: '刷新', exact: true }).click();
-  await page.waitForFunction(async () => !(await window.mockManager.status()).running);
+  await waitForPageCondition(page, async () => !(await window.mockManager.status()).running, { description: 'bundled engine shutdown' });
   assert.equal(await toggle().isEnabled(), true, 'restoration works even without Whistle');
   await toggle().click();
-  await page.waitForFunction(async () => !(await window.mockManager.systemProxyStatus()).managed);
+  await waitForPageCondition(page, async () => !(await window.mockManager.systemProxyStatus()).managed, { description: 'system proxy released' });
   assert.deepEqual((await read()).snapshot, changed.snapshot);
   assert.deepEqual(errors, []);
   await writeFile('test-results/system-proxy-desktop-result.json', JSON.stringify({ passed: true, realNetworkChanges: false,

@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -82,7 +83,7 @@ try {
   const body='{"code":0,"name":"商品","items":[{"id":1,"name":"Keyboard"}]}';
   await page.getByLabel('Response JSON',{exact:true}).fill(body);
   await page.getByRole('switch',{name:'Enable endpoint',exact:true}).check();
-  await page.waitForFunction(async()=>(await window.mockManager.status()).running);
+  await waitForPageCondition(page, async()=>(await window.mockManager.status()).running, { description: 'bundled engine startup' });
   proxy=await page.evaluate(()=>window.mockManager.status());
   await apply();
   assert.deepEqual(await mock(),JSON.parse(body));

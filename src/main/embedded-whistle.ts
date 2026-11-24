@@ -252,9 +252,17 @@ export class EmbeddedWhistle implements WhistleAccess {
     const authKey = randomBytes(32).toString('hex');
     const username = randomBytes(16).toString('hex');
     const password = randomBytes(32).toString('hex');
+    const env: NodeJS.ProcessEnv = { WHISTLE_PATH: this.root };
+    if (process.platform === 'win32') {
+      // Chromium's utility launcher replaces the environment; unlike libuv it
+      // does not restore SystemRoot, which Winsock needs for initialization.
+      const key = Object.keys(process.env).find(name => name.toLowerCase() === 'systemroot');
+      const systemRoot = key && process.env[key];
+      if (systemRoot) env.SystemRoot = systemRoot;
+    }
     const child = utilityProcess.fork(this.workerPath, [], {
       cwd: this.root,
-      env: {WHISTLE_PATH: this.root},
+      env,
       serviceName: 'Bundled Whistle',
       stdio: 'ignore',
     });

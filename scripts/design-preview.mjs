@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 // Run after npm run build: node --import tsx scripts/design-preview.mjs
 // The native proxy boundary is replaced with an isolated JSON fixture. No OS
 // proxy settings or system trust stores are read or written by this harness.
@@ -166,13 +167,13 @@ try {
   result.nativeViewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, devicePixelRatio }));
   assert.equal(await app.evaluate(({ app }) => app.getPath('userData')), profile);
   await selectedProducts();
-  await page.waitForFunction(async () => (await window.mockManager.status()).running);
+  await waitForPageCondition(page, async () => (await window.mockManager.status()).running, { description: 'bundled engine startup' });
   // Refresh updates the renderer immediately rather than waiting for polling.
   await page.getByRole('button', { name: '连接设置', exact: true }).click();
   await page.getByRole('button', { name: '刷新', exact: true }).click();
   await page.getByRole('button', { name: '完成', exact: true }).click();
   await toolbarToggle().click();
-  await page.waitForFunction(async () => (await window.mockManager.systemProxyStatus()).state === 'on');
+  await waitForPageCondition(page, async () => (await window.mockManager.systemProxyStatus()).state === 'on', { description: 'system proxy enabled' });
   await page.waitForFunction(() => document.querySelector('.topbar__proxy input')?.checked);
   assert.equal(await toolbarToggle().isChecked(), true);
   const engine = await page.evaluate(() => window.mockManager.status());

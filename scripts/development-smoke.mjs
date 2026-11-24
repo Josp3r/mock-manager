@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 // Exercise the unpackaged helper path as well as the packaged-resource path.
 import { _electron as electron } from 'playwright';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -14,7 +15,13 @@ let app;
 try {
   app=await electron.launch({args:['.'],cwd:process.cwd(),env,timeout:60000});
   const page=await app.firstWindow();
-  await page.waitForFunction(async()=>(await window.mockManager.status()).running);
+  await waitForPageCondition(page, async()=> {
+    const status=await window.mockManager.status();
+    return status.running || Boolean(status.error);
+  }, { description: 'development engine startup or reported failure' });
+  const engineStatus=await page.evaluate(()=>window.mockManager.status());
+  assert.equal(engineStatus.running,true,'Development engine must be running: '+JSON.stringify(engineStatus));
+  assert.equal(engineStatus.error,undefined,'Development engine reported an error: '+JSON.stringify(engineStatus));
   assert.equal(await app.evaluate(({app})=>app.isPackaged),false);
   assert.equal(await page.evaluate(()=>window.mockManager.platform),process.platform);
   const status=await page.evaluate(()=>window.mockManager.systemProxyStatus());

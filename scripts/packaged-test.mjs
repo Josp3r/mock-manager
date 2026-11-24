@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -49,7 +50,10 @@ async function httpsMock(port,ca) {
 let app;
 try {
   app=await launch();let page=await app.firstWindow();
-  await page.waitForFunction(async()=> (await window.mockManager.status()).running);
+  await waitForPageCondition(page, async()=> {
+    const status=await window.mockManager.status();
+    return status.running || Boolean(status.error);
+  }, { description: 'packaged engine startup or reported failure' });
   const info=await app.evaluate(({app})=>({packaged:app.isPackaged,version:app.getVersion(),root:app.getPath('userData'),platform:process.platform,arch:process.arch}));
   assert.equal(await app.evaluate(({app})=>app.getName()),'Mock Manager');
   const notices=await readFile(join(resources,'THIRD-PARTY-NOTICES.txt'),'utf8');
@@ -58,6 +62,8 @@ try {
   assert.equal(await page.evaluate(()=>window.mockManager.platform),process.platform);
   const license=await readFile(join(resources,'LICENSE.txt'),'utf8');assert.ok(license.includes('MIT License'));
   let status=await page.evaluate(()=>window.mockManager.status());
+  assert.equal(status.running,true,'Packaged engine must be running: '+JSON.stringify(status));
+  assert.equal(status.error,undefined,'Packaged engine reported an error: '+JSON.stringify(status));
   assert.equal(status.version,'2.10.15', 'Packaged engine status: '+JSON.stringify(status));assert.equal(status.host,'127.0.0.1');
   const proxy=await page.evaluate(()=>window.mockManager.systemProxyStatus());
   assert.equal(proxy.supported,true);assert.equal(proxy.managed,false);assert.notEqual(proxy.state,'error',proxy.message);
@@ -92,10 +98,16 @@ try {
   } else await app.close();
   app=undefined;await unreachable(port);
   app=await launch();page=await app.firstWindow();
-  await page.waitForFunction(async()=> (await window.mockManager.status()).running);
+  await waitForPageCondition(page, async()=> {
+    const status=await window.mockManager.status();
+    return status.running || Boolean(status.error);
+  }, { description: 'restarted packaged engine startup or reported failure' });
+  status=await page.evaluate(()=>window.mockManager.status());
+  assert.equal(status.running,true,'Restarted packaged engine must be running: '+JSON.stringify(status));
+  assert.equal(status.error,undefined,'Restarted packaged engine reported an error: '+JSON.stringify(status));
   await page.getByRole('button',{name:'New project',exact:true}).waitFor();
   assert.equal((await page.evaluate(()=>window.mockManager.getLanguage())).preference,'en');
-  status=await page.evaluate(()=>window.mockManager.status());assert.equal(status.port,port);assert.equal(status.syncState,'synced');
+  assert.equal(status.port,port);assert.equal(status.syncState,'synced');
   assert.deepEqual(await httpsMock(port,ca),{status:200,body:{packaged:true,data:[1,2,3]}});
   await writeFile('test-results/packaged-builtin-result.json',JSON.stringify({passed:true,version:info.version,platform:info.platform,arch:info.arch,whistle:status.version,isolatedProfile:true,noNodeOrW2InPath:true,ignoredDevOverrides:true,realProxyWrites:false,systemTrustWrites:false,checks:['fresh automatic startup','runtime architecture matches native test host','real packaged native helper read','local HTTP self-test','public CA export','HTTPS CONNECT+CA verification+mock','Unicode, spaces, percent and hash in profile path','quit releases port','restart same port/CA/rule','packaged language switch, menu and restart preference']},null,2));
   console.log('PASS: packaged builtin engine without Node/w2, real HTTPS mock with exported CA, restart persistence, quit cleanup. No OS proxy/trust writes.');

@@ -1,3 +1,4 @@
+import { waitForPageCondition } from './async-page-wait.mjs';
 import { _electron as electron } from 'playwright';
 import { mkdtemp, mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
@@ -89,7 +90,7 @@ try {
   await page.getByRole('button',{name:'连接设置',exact:true}).click();
   await page.getByRole('heading',{name:'连接设置',exact:true}).waitFor();
   const settings=page.getByRole('dialog');
-  await page.waitForFunction(async()=> (await window.mockManager.status()).running);
+  await waitForPageCondition(page, async()=> (await window.mockManager.status()).running, { description: 'bundled engine startup' });
   proxy=await page.evaluate(()=>window.mockManager.status());
   const address=proxy.address;
   await settings.getByText(address,{exact:false}).waitFor();

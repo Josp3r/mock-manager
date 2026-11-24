@@ -28,8 +28,11 @@ if (target.platform === 'darwin') {
     '--prepackaged', bundle, '--publish', 'never',
   ], { env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false' } });
   artifacts.push(join(output, `${stem}-setup.exe`));
-  // Windows' built-in bsdtar creates a regular, directly runnable portable ZIP.
-  run('tar.exe', ['-a', '-c', '-f', zip, '-C', bundle, '.']);
+  // Use Windows' bsdtar explicitly: Git Bash also ships tar.exe, whose GNU
+  // implementation treats an absolute D: output path as a remote destination.
+  const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+  if (!systemRoot) throw new Error('SystemRoot is required to locate the Windows archive tool.');
+  run(join(systemRoot, 'System32', 'tar.exe'), ['-a', '-c', '-f', zip, '-C', bundle, '.']);
 }
 artifacts.push(zip);
 

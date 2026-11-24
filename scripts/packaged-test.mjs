@@ -58,7 +58,7 @@ try {
   assert.equal(await page.evaluate(()=>window.mockManager.platform),process.platform);
   const license=await readFile(join(resources,'LICENSE.txt'),'utf8');assert.ok(license.includes('MIT License'));
   let status=await page.evaluate(()=>window.mockManager.status());
-  assert.equal(status.version,'2.10.15');assert.equal(status.host,'127.0.0.1');
+  assert.equal(status.version,'2.10.15', 'Packaged engine status: '+JSON.stringify(status));assert.equal(status.host,'127.0.0.1');
   const proxy=await page.evaluate(()=>window.mockManager.systemProxyStatus());
   assert.equal(proxy.supported,true);assert.equal(proxy.managed,false);assert.notEqual(proxy.state,'error',proxy.message);
   assert.equal((await page.evaluate(()=>window.mockManager.testConnection())).ok,true);

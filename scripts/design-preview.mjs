@@ -260,7 +260,7 @@ try {
   assert.deepEqual((await readFixture()).snapshot, original, 'quit must restore the entire fixture snapshot');
   checks.push('graceful quit restores original fixture proxy/PAC/SOCKS/bypass configuration');
   result.passed = true;
-  result.version = '0.1.4';
+  result.version = JSON.parse(await readFile('package.json', 'utf8')).version;
   result.engineVersion = engine.version;
   console.log('PASS: design preview, three viewports, draft/apply interactions, HTTPS scenarios, fixture proxy restoration.');
 } catch (error) {

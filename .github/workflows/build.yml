@@ -75,6 +75,8 @@ jobs:
         run: npm run build 2>&1 | tee test-results/build.log
       - name: Real Whistle integration
         run: npm run test:integration 2>&1 | tee test-results/integration.log
+      - name: Development app native helper smoke test
+        run: node scripts/development-smoke.mjs 2>&1 | tee test-results/development.log
       - name: Package and check binary architecture
         run: node scripts/package-app.mjs --platform "$TARGET_PLATFORM" --arch "$TARGET_ARCH" --dir 2>&1 | tee test-results/package.log
       # Electron tests run sequentially within each job; they never share ports.

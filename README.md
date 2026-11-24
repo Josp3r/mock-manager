@@ -75,7 +75,7 @@ On macOS, the app saves the current network location's proxy configuration, poin
 
 If another program changes those settings, restoration pauses rather than overwriting the external change. Resolve the conflict and retry, or choose **Keep current settings → Confirm keep** to stop managing the proxy without changing its current settings. The saved original configuration is retained. Existing HTTP/HTTPS proxy configurations containing authentication metadata are not currently supported for takeover.
 
-On Windows, the app manages the current user’s Internet/WinINet LAN settings. It preserves the proxy server, bypass list, PAC URL and detection flags, points HTTP/HTTPS to the local engine, and restores the original settings on disable or quit. Machine-wide proxy policy and locked settings are rejected. It does not change WinHTTP, VPN-specific or application-specific proxy configurations.
+On Windows, the app manages the current user’s Internet/WinINet LAN settings. It saves the original proxy server, bypass list, PAC URL and detection flags, points HTTP/HTTPS to the local engine, and temporarily disables PAC and auto-discovery while keeping the bypass list. Disabling the switch or quitting restores the saved settings. Machine-wide proxy policy and locked settings are rejected. It does not change WinHTTP, VPN-specific or application-specific proxy configurations.
 
 The system proxy affects only applications that follow system proxy settings. The app does not read or write keychain passwords or automatically trust its root certificate.
 
@@ -123,9 +123,9 @@ npm run package:win
 
 Unpacked apps are written to `release/mac-arm64/Mock Manager.app`, `release/mac/Mock Manager.app` (Intel), or `release/win-unpacked/Mock Manager.exe`. The Mac packaging script verifies runtime/helper architecture and a local ad-hoc signature; it does not perform Apple Developer ID signing or notarization.
 
-After testing the unpacked app, create distribution archives with `npm run archive:release -- --platform darwin --arch arm64` (use `x64` for Intel, or `--platform win32 --arch x64` on Windows). Windows artifacts include an NSIS installer and a portable ZIP. Artifacts and SHA-256 files are written to `release/`.
+After testing the unpacked app, create distribution archives with `npm run archive:release -- --platform darwin --arch arm64` (use `x64` for Intel, or `--platform win32 --arch x64` on Windows). Artifacts are named `Mock-Manager-0.2.0-mac-arm64.zip`, `Mock-Manager-0.2.0-mac-x64.zip`, `Mock-Manager-0.2.0-win-x64.zip` and `Mock-Manager-0.2.0-win-x64-setup.exe`. The Windows NSIS installer and portable ZIP use the same tested unpacked app. Artifacts and `SHA256SUMS-<platform>-<arch>.txt` files are written to `release/`.
 
-The GitHub Actions build matrix tests each target on a matching native runner before archiving. Pushes and pull requests retain downloadable build artifacts. Pushing a matching `v*` tag creates a **draft** GitHub Release only after all targets pass; review its notes and assets before publishing.
+The GitHub Actions build matrix tests each target on a matching native runner before archiving. Successful jobs from pushes, pull requests or manual runs retain downloadable build artifacts. Pushing a tag matching the package version, such as `v0.2.0`, creates a **draft** GitHub Release only after all targets pass; review its notes and assets before publishing. The [0.2.0 verification record](docs/superpowers/verification/2026-11-24-cross-platform.md) distinguishes completed runs from checks still pending.
 
 ## Verification
 
@@ -134,13 +134,31 @@ npm test
 npm run typecheck
 npm run build
 npm run test:integration
+node scripts/development-smoke.mjs
+```
+
+Build and smoke-test the package on its matching OS and architecture; run only the applicable pair:
+
+```sh
+# Apple Silicon Mac
+npm run package:mac:arm64
+npm run test:packaged -- "release/mac-arm64/Mock Manager.app"
+# Intel Mac
+npm run package:mac:x64
+npm run test:packaged -- "release/mac/Mock Manager.app"
+# Windows x64 (pass the unpacked directory, not the .exe)
+npm run package:win
+npm run test:packaged -- "release/win-unpacked"
+```
+
+Additional macOS desktop and visual checks:
+
+```sh
 npm run test:engine
 npm run test:desktop
 npm run test:system-proxy:desktop
 npm run test:i18n:desktop
 node --import tsx scripts/design-preview.mjs
-npm run package:mac
-npm run test:packaged -- "release/mac-arm64/Mock Manager.app"
 ```
 
 Proxy integration tests use the pinned Whistle version and a local test backend, not production endpoints. Desktop tests use isolated data directories. System-proxy interaction tests use a fixture helper rather than changing real OS proxy settings or certificate trust. The packaged-app test uses the real native helper for read-only status checks. The Windows native proxy mutation test is opt-in and runs only on disposable CI machines, with restoration in `finally`; it must not be run on a personal workstation. The macOS desktop fixture scripts remain macOS-specific; native CI uses the portable packaged smoke test on all three targets.

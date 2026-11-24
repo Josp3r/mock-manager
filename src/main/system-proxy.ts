@@ -32,6 +32,22 @@ const PROXY_ENABLE_KEYS = [
 
 class ProxyOperationError extends Error {}
 
+function externalWindowsReadRefusal(error: unknown, platform?: string): error is WindowsSystemProxyError {
+  return platform === 'win32' && error instanceof WindowsSystemProxyError
+    && (error.code === 'unsupportedPolicy' || error.code === 'credentials');
+}
+
+function unreadableExternalStatus(journal: Journal, error: WindowsSystemProxyError): SystemProxyStatus {
+  return {
+    ...managedDetails(journal), state: 'changed',
+    message: error.message + ' ' + t(
+      '无法安全恢复系统代理。恢复备份仍保留；选择保留当前设置可归档备份并结束接管。',
+      'The system proxy cannot be restored safely. The recovery backup is preserved; choose Keep current settings to archive it and stop managing the proxy.',
+    ),
+  };
+}
+
+
 function hasCode(error: unknown, ...codes: string[]) {
   return error instanceof Error && codes.includes((error as NodeJS.ErrnoException).code ?? '');
 }
@@ -245,11 +261,19 @@ export class SystemProxyController {
 
   release(): Promise<SystemProxyStatus> {
     return this.run(async (journal) => {
-      const snapshot = await this.read();
+      let snapshot: ProxySnapshot;
+      try { snapshot = await this.read(); }
+      catch (error) {
+        // release() is the explicitly confirmed Keep current settings action.
+        // Only a validated journal plus these permanent external conditions may
+        // bypass a fresh readable snapshot. Transient failures never release ownership.
+        if (!journal || !externalWindowsReadRefusal(error, this.adapter.platform)) throw error;
+        await this.archiveJournal();
+        return { supported: true, state: 'error', managed: false, services: [], message: error.message };
+      }
       const current = summarize(snapshot, journal, this.adapter.platform);
       if (current.state !== 'changed') return current;
-      await rename(this.journalPath, join(this.root, 'system-proxy.recovery-' + randomUUID() + '.json'));
-      await this.syncRoot();
+      await this.archiveJournal();
       return summarize(snapshot, undefined, this.adapter.platform);
     });
   }
@@ -271,10 +295,11 @@ export class SystemProxyController {
             message: t("无法读取系统代理恢复备份。请检查应用数据目录。", "The system proxy recovery backup could not be read. Check the app data folder."),
           };
         }
+        if (saved && externalWindowsReadRefusal(error, this.adapter.platform)) return unreadableExternalStatus(saved, error);
         return {
           ...(saved ? managedDetails(saved) : { supported: true, managed: false, services: [] }),
           state: 'error',
-          message: error instanceof ProxyOperationError ? error.message : t("无法更新系统代理恢复备份。", "The system proxy recovery backup could not be updated."),
+          message: error instanceof ProxyOperationError || error instanceof WindowsSystemProxyError ? error.message : t("无法更新系统代理恢复备份。", "The system proxy recovery backup could not be updated."),
         };
       }
     });
@@ -286,7 +311,7 @@ export class SystemProxyController {
     try {
       return await this.adapter.read();
     } catch (error) {
-      if (error instanceof WindowsSystemProxyError) throw new ProxyOperationError(error.message);
+      if (error instanceof WindowsSystemProxyError) throw error;
       throw new ProxyOperationError(t("无法读取系统代理设置。", "System proxy settings could not be read."));
     }
   }
@@ -349,6 +374,11 @@ export class SystemProxyController {
     } finally {
       await rm(temp, { force: true });
     }
+    await this.syncRoot();
+  }
+
+  private async archiveJournal(): Promise<void> {
+    await rename(this.journalPath, join(this.root, 'system-proxy.recovery-' + randomUUID() + '.json'));
     await this.syncRoot();
   }
 

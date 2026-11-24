@@ -14,7 +14,7 @@ await mkdir(root);
 const version=JSON.parse(await readFile('package.json','utf8')).version;
 const windows=process.platform==='win32';
 await writeFile(join(root,'preferences.json'), JSON.stringify({language:'zh-CN'}));
-const bundle=resolve(process.argv[2] || (windows ? 'release/win-unpacked' : `release/mac-${process.arch}/Mock Manager.app`));
+const bundle=resolve(process.argv[2] || (windows ? 'release/win-unpacked' : `release/${process.arch==='x64'?'mac':'mac-arm64'}/Mock Manager.app`));
 const resources=windows ? join(bundle,'resources') : join(bundle,'Contents/Resources');
 const executablePath=windows ? join(bundle,'Mock Manager.exe') : join(bundle,'Contents/MacOS/Mock Manager');
 const env={...process.env,MOCK_MANAGER_DATA_DIR:join(temporary,'invalid-dev-profile'),MOCK_MANAGER_PROXY_HELPER:join(temporary,'invalid-helper')};
@@ -81,7 +81,16 @@ try {
   assert.equal((await page.evaluate(()=>window.mockManager.getLanguage())).locale,'en');
   assert.ok((await app.evaluate(({Menu})=>Menu.getApplicationMenu().items.map(item=>item.label))).includes('Edit'));
   const port=status.port;
-  await app.close();app=undefined;await unreachable(port);
+  if(windows) {
+    const closed=app.waitForEvent('close');
+    assert.equal(await app.evaluate(({BrowserWindow})=>{
+      let prevented=false;
+      BrowserWindow.getAllWindows()[0].emit('query-session-end',{preventDefault(){prevented=true;},reasons:['logoff']});
+      return prevented;
+    }),true,'Windows session-end must be held until coordinated cleanup finishes');
+    await closed;
+  } else await app.close();
+  app=undefined;await unreachable(port);
   app=await launch();page=await app.firstWindow();
   await page.waitForFunction(async()=> (await window.mockManager.status()).running);
   await page.getByRole('button',{name:'New project',exact:true}).waitFor();

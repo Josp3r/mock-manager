@@ -18,6 +18,11 @@ const state = service => ({ enabled: service.enabled, configuration: service.con
 const root = await mkdtemp(join(tmpdir(), 'mock-manager-wininet-ci-'));
 let restored = false;
 try {
+  // The first operation must preserve the untouched OS snapshot, including null
+  // strings. This catches PowerShell coercing null C# strings to empty strings
+  // before the compare, as well as accidental null/empty changes on writes.
+  await adapter.write([{ id: 'lan', expected: state(original.services[0]), next: state(original.services[0]) }], original.location);
+  assert.deepEqual(await adapter.read(), original, 'No-op compare/write must preserve the untouched Windows snapshot');
   // Establish an inactive, nonempty baseline to exercise Unicode, PAC and bypass restoration.
   const baseline = { enabled: true, configuration: {
     ...original.services[0].configuration,

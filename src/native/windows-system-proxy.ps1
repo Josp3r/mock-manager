@@ -200,9 +200,11 @@ function Parse-State($value) {
   }
   $result = New-Object WinInetState
   $result.flags = [uint32]$config.flags
-  $result.proxyServer = $config.proxyServer
-  $result.proxyBypass = $config.proxyBypass
-  $result.autoConfigURL = $config.autoConfigURL
+  # Assigning PowerShell $null to a typed C# string coerces it to ''. Keep
+  # the newly constructed field's null default; an actual empty string is set.
+  foreach ($name in @('proxyServer', 'proxyBypass', 'autoConfigURL')) {
+    if ($null -ne $config.$name) { $result.$name = $config.$name }
+  }
   $result.autoDiscoveryFlags = [uint32]$config.autoDiscoveryFlags
   return $result
 }

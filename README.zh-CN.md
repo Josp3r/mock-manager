@@ -24,8 +24,8 @@
 
 ## 第一次使用
 
-1. 打开 **Mock Manager.app**，内置引擎自动启动。点击左侧“设置”查看运行状态和地址。
-2. HTTPS 接口：点击“导出根证书”，双击导出的 `.crt` 文件，添加到 macOS「登录」钥匙串；打开证书的「信任」选项，选择「始终信任」，Windows 上双击 `.crt`，选择「安装证书 → 当前用户」，放入「受信任的根证书颁发机构」。完成后重启浏览器。内置引擎已开启 HTTPS 解密；证书信任仍需手动完成。
+1. 打开 **Mock Manager**，内置引擎自动启动。点击左侧“设置”查看运行状态和地址。
+2. HTTPS 接口：点击“导出根证书”。macOS 上双击导出的 `.crt` 文件，添加到「登录」钥匙串，再打开证书的「信任」选项，选择「始终信任」。Windows 上双击 `.crt`，选择「安装证书 → 当前用户」，放入「受信任的根证书颁发机构」。完成后重启浏览器。内置引擎已开启 HTTPS 解密；证书信任仍需手动完成。
 3. 在顶栏或设置中开启“系统代理”。浏览器应使用系统代理，代理扩展可切为系统模式或停用。也可以按界面地址手动配置客户端。
 4. 点击“测试连接”，验证本地 HTTP 请求经过内置代理。此测试不代表浏览器路由或 HTTPS 证书信任已配置。
 5. 新建项目和接口，填写完整原始 URL 和 HTTP 方法，编辑成功、空数据、报错等响应场景。
@@ -33,7 +33,7 @@
 
 初始示例使用 `api.example.test`，所有接口默认关闭。“已同步”表示规则已写入并通过读回验证，实际请求仍需经过正确代理。
 
-本地构建采用 ad-hoc 签名，尚未进行 Apple 开发者签名和公证。若首次打开被阻止，可通过“系统设置 → 隐私与安全性”允许打开，或使用 Finder 的“打开”操作；无需关闭系统安全设置。Windows 构建尚未进行 Authenticode 签名。
+macOS 构建采用本地 ad-hoc 签名，尚未进行 Apple 开发者签名和公证。若首次打开被阻止，可通过“系统设置 → 隐私与安全性”允许打开，或使用 Finder 的“打开”操作；无需关闭系统安全设置。Windows 构建尚未进行 Authenticode 签名。
 
 ## 切换语言
 
@@ -68,7 +68,7 @@ macOS 开启时，应用保存当前网络位置的代理配置，将 HTTP/HTTPS
 
 如果其他程序修改了这些设置，恢复会停止并提示，避免覆盖外部修改。可处理冲突后重试，或选择“保留当前设置 → 确认保留”结束接管；后者不修改系统当前设置，原配置备份仍保留。含 HTTP/HTTPS 认证元数据的原代理暂不支持接管。
 
-Windows 管理当前用户的 Internet/WinINet LAN 代理，保存代理地址、绕过列表、PAC URL 与自动检测标志，将 HTTP/HTTPS 指向本地引擎，并在关闭或退出时恢复。机器级策略或锁定的配置会被拒绝接管；不修改 WinHTTP、VPN 专用或应用自行配置的代理。
+Windows 管理当前用户的 Internet/WinINet LAN 代理，保存原代理地址、绕过列表、PAC URL 与自动检测标志，将 HTTP/HTTPS 指向本地引擎，接管期间临时停用 PAC 和自动发现并保留绕过列表。关闭开关或退出时恢复已保存的配置。机器级策略或锁定的配置会被拒绝接管；不修改 WinHTTP、VPN 专用或应用自行配置的代理。
 
 系统代理只影响遵循系统设置的应用。应用不读取或写入钥匙串密码，也不自动信任根证书。
 
@@ -114,11 +114,11 @@ npm run package:mac:x64
 npm run package:win
 ```
 
-Intel 成品位于 `release/mac/Mock Manager.app`，Windows 位于 `release/win-unpacked/Mock Manager.exe`。验证解包应用后，执行 `npm run archive:release -- --platform darwin --arch arm64` 生成发布文件；Intel 改为 `--arch x64`，Windows 使用 `--platform win32 --arch x64`。Windows 产物包含 NSIS 安装器和便携 ZIP，产物及 SHA-256 校验文件写入 `release/`。
+解包应用分别位于 `release/mac-arm64/Mock Manager.app`（Apple Silicon）、`release/mac/Mock Manager.app`（Intel）或 `release/win-unpacked/Mock Manager.exe`（Windows）。Mac 打包脚本会检查运行时与代理助手的架构，并进行及验证本地 ad-hoc 签名，不包含 Apple Developer ID 签名或公证。
 
-GitHub Actions 会在各自原生环境构建并测试三个目标。Push/PR 产生可下载的构建产物；推送与版本号一致的 `v*` 标签后，只有三个目标全部通过，才会创建包含附件的 **Release 草稿**，由维护者检查后发布。
+验证解包应用后，执行 `npm run archive:release -- --platform darwin --arch arm64` 生成发布文件；Intel 改为 `--arch x64`，Windows 使用 `--platform win32 --arch x64`。文件名分别为 `Mock-Manager-0.2.0-mac-arm64.zip`、`Mock-Manager-0.2.0-mac-x64.zip`、`Mock-Manager-0.2.0-win-x64.zip` 和 `Mock-Manager-0.2.0-win-x64-setup.exe`。Windows NSIS 安装器和便携 ZIP 使用同一份已验证的解包应用。产物及 `SHA256SUMS-<platform>-<arch>.txt` 校验文件写入 `release/`。
 
-成品位于 `release/mac-arm64/Mock Manager.app`。打包脚本会进行并验证本地 ad-hoc 签名，不包含 Apple Developer ID 签名或公证。
+GitHub Actions 会在各自原生环境构建并测试三个目标。Push、PR 和手动运行中成功完成的任务会保留可下载产物；推送与包版本一致的标签（例如 `v0.2.0`）后，只有三个目标全部通过，才会创建包含附件的 **Release 草稿**，由维护者检查后发布。[0.2.0 验证记录](docs/superpowers/verification/2026-11-24-cross-platform.md)区分已经完成的运行和仍待验证的项目。
 
 ## 验证
 
@@ -127,13 +127,31 @@ npm test
 npm run typecheck
 npm run build
 npm run test:integration
+node scripts/development-smoke.mjs
+```
+
+在目标对应的操作系统和架构上打包并运行成品测试，只执行适用的一组：
+
+```sh
+# Apple Silicon Mac
+npm run package:mac:arm64
+npm run test:packaged -- "release/mac-arm64/Mock Manager.app"
+# Intel Mac
+npm run package:mac:x64
+npm run test:packaged -- "release/mac/Mock Manager.app"
+# Windows x64：传入解包目录，不是 .exe 文件
+npm run package:win
+npm run test:packaged -- "release/win-unpacked"
+```
+
+macOS 上可额外运行桌面和视觉检查：
+
+```sh
 npm run test:engine
 npm run test:desktop
 npm run test:system-proxy:desktop
 npm run test:i18n:desktop
 node --import tsx scripts/design-preview.mjs
-npm run package:mac
-npm run test:packaged -- "release/mac-arm64/Mock Manager.app"
 ```
 
 代理集成测试使用固定版本的 Whistle 和本地测试后端，不访问正式接口。桌面测试使用隔离数据目录；系统代理交互测试通过模拟助手执行，不改变真实代理或证书信任。打包成品测试会通过真实原生助手执行只读状态检查。Windows 原生代理写入测试只允许在一次性 CI 机器上显式运行，并在 finally 中恢复配置，不应在个人电脑执行。原有桌面模拟助手脚本仍用于 macOS；三个原生 CI 目标均运行跨平台的成品测试。

@@ -11,7 +11,7 @@ vi.mock('electron', () => ({ utilityProcess: { fork: vi.fn() } }));
 
 let profile: string;
 let startFault = '';
-const children: ChildProcess[] = [];
+const children: { child: ChildProcess; closed: Promise<void> }[] = [];
 
 beforeEach(async () => {
   setLocale('en');
@@ -23,19 +23,28 @@ beforeEach(async () => {
       env: { ...options?.env, MM_TEST_START_FAULT: startFault },
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
     });
-    children.push(child);
+    // Register immediately: stop() waits for exit, but Node's process/IPC
+    // handles can close afterward, particularly on Windows.
+    const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+    children.push({ child, closed });
     return Object.assign(child, { postMessage: (message: unknown) => child.send(message as object) }) as unknown as ReturnType<typeof utilityProcess.fork>;
   });
 });
 
 afterEach(async () => {
   setLocale('zh-CN');
-  await Promise.all(children.splice(0).map(child => new Promise<void>(resolve => {
-    if (child.exitCode !== null || child.signalCode !== null) return resolve();
-    child.once('exit', () => resolve());
-    child.kill();
-  })));
-  await rm(profile, { recursive: true, force: true });
+  await Promise.all(children.splice(0).map(async ({ child, closed }) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await closed;
+  }));
+  // Windows may release the child's working-directory handle just after close.
+  // Retry transient filesystem locks briefly; persistent failures still fail.
+  await rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: process.platform === 'win32' ? 5 : 0,
+    retryDelay: 100,
+  });
 });
 
 const engine = () => new EmbeddedWhistle(profile, resolve('src/main/whistle-worker.cjs'));

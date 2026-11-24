@@ -1,9 +1,10 @@
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SystemProxyController } from '../src/main/system-proxy';
+import { WindowsSystemProxyError } from '../src/main/windows-system-proxy';
 import type { ProxyChange, ProxySnapshot, SystemProxyAdapter } from '../src/main/system-proxy-types';
 
 // Only the OS boundary is simulated: the production controller writes real journals.
@@ -11,6 +12,7 @@ class WindowsPreferences implements SystemProxyAdapter {
   supported = true;
   readonly platform = 'win32' as const;
   writes = 0;
+  readError?: Error;
   beforeWrite?: () => void;
   snapshot: ProxySnapshot = {
     location: 'wininet-current-user',
@@ -19,7 +21,7 @@ class WindowsPreferences implements SystemProxyAdapter {
       proxyBypass: '<local>;*.内部.example', autoConfigURL: 'https://pac.example/settings.pac', autoDiscoveryFlags: 33,
     } }],
   };
-  async read() { return structuredClone(this.snapshot); }
+  async read() { if (this.readError) throw this.readError; return structuredClone(this.snapshot); }
   async write(changes: ProxyChange[], location?: string) {
     this.writes++;
     this.beforeWrite?.();
@@ -86,6 +88,48 @@ describe('Windows system proxy journal/controller', () => {
     expect(adapter.writes).toBe(1);
     expect(adapter.snapshot.services[0].configuration.autoConfigURL).toBe('https://changed.example/proxy.pac');
     expect(await stat(journal)).toBeDefined();
+  });
+
+  it.each(['unsupportedPolicy', 'credentials'])('allows explicit archive after %s prevents restoration, without changing OS preferences', async code => {
+    const { controller, adapter, journal, root } = await setup();
+    await controller.enable({ host: '127.0.0.1', port: 8899 });
+    const backup = await readFile(journal, 'utf8');
+    adapter.readError = new WindowsSystemProxyError(code);
+    const restarted = new SystemProxyController(root, adapter);
+    expect(await restarted.status()).toMatchObject({ state: 'changed', managed: true, message: expect.stringMatching(/备份/) });
+    expect(await restarted.disable()).toMatchObject({ state: 'changed', managed: true });
+    expect(await readFile(journal, 'utf8')).toBe(backup);
+    expect(adapter.writes).toBe(1);
+    expect(await restarted.release()).toMatchObject({ state: 'error', managed: false });
+    expect(adapter.writes).toBe(1);
+    await expect(stat(journal)).rejects.toMatchObject({ code: 'ENOENT' });
+    const archives = (await readdir(root)).filter(name => name.startsWith('system-proxy.recovery-'));
+    expect(archives).toHaveLength(1);
+    expect(await readFile(join(root, archives[0]), 'utf8')).toBe(backup);
+    expect(await restarted.status()).toMatchObject({ state: 'error', managed: false });
+  });
+
+  it.each(['readFailed', 'timeout', 'invalidResponse', 'unknown'])('retains the journal when a transient or untrusted %s error prevents reading', async code => {
+    const { controller, adapter, journal, root } = await setup();
+    await controller.enable({ host: '127.0.0.1', port: 8899 });
+    const backup = await readFile(journal, 'utf8');
+    adapter.readError = new WindowsSystemProxyError(code);
+    expect(await controller.status()).toMatchObject({ state: 'error', managed: true });
+    expect(await controller.release()).toMatchObject({ state: 'error', managed: true });
+    expect(await readFile(journal, 'utf8')).toBe(backup);
+    expect((await readdir(root)).filter(name => name.includes('.recovery-'))).toEqual([]);
+    expect(adapter.writes).toBe(1);
+  });
+
+  it.each(['unsupportedPolicy', 'credentials'])('never archives a malformed journal even with a %s refusal', async code => {
+    const { controller, adapter, journal, root } = await setup();
+    await controller.enable({ host: '127.0.0.1', port: 8899 });
+    await writeFile(journal, '{}');
+    adapter.readError = new WindowsSystemProxyError(code);
+    expect(await controller.release()).toMatchObject({ state: 'error', managed: true });
+    expect(await readFile(journal, 'utf8')).toBe('{}');
+    expect((await readdir(root)).filter(name => name.includes('.recovery-'))).toEqual([]);
+    expect(adapter.writes).toBe(1);
   });
 
   it('rejects legacy macOS journals on Windows before any write', async () => {

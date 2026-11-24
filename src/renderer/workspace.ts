@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppData, ConnectionStatus, DesktopBridge, Project, SystemProxyStatus } from '../shared/types';
 import { maxResponseLength } from './model';
 import { t } from '../shared/i18n';
+import { singleFlight } from '../shared/single-flight';
 
 type SaveState = 'clean' | 'pending' | 'saving' | 'error';
 
@@ -26,7 +27,7 @@ const busyTranslations: Record<string, string> = {
 
 // Store notice keys so existing notices update when the display language changes.
 const noticeTranslations: Record<string, string> = {
-  '根证书已导出。请在钥匙串访问中安装并信任它。': 'Root certificate exported. Install and trust it in Keychain Access.',
+  '根证书已导出。请按照连接设置中的指南安装并信任它。': 'Root certificate exported. Follow the guide in Connection settings to install and trust it.',
   '已取消导出根证书。': 'Certificate export cancelled.',
   '已将系统 HTTP/HTTPS 代理指向本地代理引擎。': 'System HTTP/HTTPS proxy now points to the local engine.',
   '已恢复开启前的系统代理设置。': 'Previous system proxy settings restored.',
@@ -95,7 +96,7 @@ export function useWorkspace() {
     setStatusError('');
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useMemo(() => singleFlight(async () => {
     if (!bridge || command.current || preparingQuit.current) return;
     const request = ++statusRequest.current;
     const [connection, proxy] = await Promise.allSettled([bridge.status(), bridge.systemProxyStatus()]);
@@ -106,7 +107,7 @@ export function useWorkspace() {
       setSystemProxyStatus(proxy.value);
       setSystemProxyError('');
     } else setSystemProxyError(messageFrom(proxy.reason));
-  }, [bridge, receiveStatus]);
+  }), [bridge, receiveStatus]);
 
   useEffect(() => {
     void load();
@@ -255,7 +256,7 @@ export function useWorkspace() {
     }, setConnectionTest),
     connectionTest,
     exportCertificate: () => void run('正在导出根证书', api => api.exportCertificate(), exported => {
-      setNotice(exported ? '根证书已导出。请在钥匙串访问中安装并信任它。' : '已取消导出根证书。');
+      setNotice(exported ? '根证书已导出。请按照连接设置中的指南安装并信任它。' : '已取消导出根证书。');
     }),
     enableMultiSelect: () => void run('正在开启多选', api => api.enableMultiSelect(), receiveStatus),
     enableRules: () => void run('正在启用规则', api => api.enableRules(), receiveStatus),

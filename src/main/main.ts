@@ -13,6 +13,7 @@ import { SyncController } from './sync';
 import { SystemProxyController } from './system-proxy';
 import { NativeSystemProxy } from './native-system-proxy';
 import { WindowsSystemProxy } from './windows-system-proxy';
+import { QuitCoordinator } from './quit-coordinator';
 import { resolveDataPath } from './data-path';
 import { PreferenceStore } from './preferences';
 import { setLocale, t, type LanguageSettings } from '../shared/i18n';
@@ -36,10 +37,12 @@ let languageSettings: LanguageSettings = { preference: 'system', locale: 'zh-CN'
 const engine = new EmbeddedWhistle(dataRoot, join(__dirname, 'whistle-worker.cjs'));
 const controller = new SyncController(new DataStore(dataRoot), engine);
 let shutdownInProgress = false;
+let quitCoordinator: QuitCoordinator;
 const proxyHelperOverride = !app.isPackaged ? process.env.MOCK_MANAGER_PROXY_HELPER : undefined;
 const helperName = process.platform === 'win32' ? 'windows-system-proxy.ps1' : 'system-proxy';
 const proxyHelper = proxyHelperOverride && isAbsolute(proxyHelperOverride) ? proxyHelperOverride
-  : app.isPackaged ? join(process.resourcesPath, helperName) : join(__dirname, '../dist-native', helperName);
+  : app.isPackaged ? join(process.resourcesPath, helperName)
+  : join(__dirname, process.platform === 'win32' ? '../src/native' : '../dist-native', helperName);
 const systemProxy = new SystemProxyController(dataRoot, process.platform === 'win32'
   ? new WindowsSystemProxy(proxyHelper) : new NativeSystemProxy(proxyHelper));
 const devUrl = !app.isPackaged ? process.env.MOCK_MANAGER_DEV_URL : undefined;
@@ -132,6 +135,11 @@ function createWindow() {
   window.webContents.session.setPermissionRequestHandler((_wc,_permission,callback) => callback(false));
   window.once('ready-to-show', () => window?.show());
   window.on('closed', () => { window = null; });
+  if (process.platform === 'win32') {
+    // Windows logoff/restart does not emit app.before-quit. Delay the session
+    // until the same draft/proxy/engine shutdown sequence has completed.
+    window.on('query-session-end', event => { void quitCoordinator.request(event); });
+  }
   if (devUrl) void window.loadURL(devUrl); else void window.loadFile(rendererPath);
 }
 function prepareRendererQuit(): Promise<void> {
@@ -202,33 +210,21 @@ function updateMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 if (gotLock) {
-  let quitPermitted = false;
-  let preparingQuit = false;
-  app.on('before-quit', event => {
-    if (quitPermitted) return;
-    event.preventDefault();
-    if (preparingQuit) return;
-    preparingQuit = true;
-    void (async () => {
-      try {
+  quitCoordinator = new QuitCoordinator(async () => {
         await prepareRendererQuit();
         shutdownInProgress = true;
         await controller.load(); // Drain pending rule writes before stopping their engine.
         await shutdownEngine(systemProxy, engine);
-        quitPermitted = true;
-        app.quit();
-      } catch (error) {
+      }, () => app.quit(), async error => {
         shutdownInProgress = false;
-        preparingQuit = false;
         if (!window) createWindow();
         window?.webContents.send('manager:quitCancelled');
         window?.show();
         await dialog.showMessageBox(window!, {type: 'error', title: t("暂时无法退出", "Unable to quit"),
           message: t("应用与内置代理将保持运行", "The app and local proxy will keep running"),
           detail: (error instanceof Error ? error.message : String(error)) + '\n' + t('请在连接设置中处理后再退出。', 'Resolve the issue in Connection settings before quitting.'), buttons: [t("返回应用", "Return to app")]});
-      }
-    })();
-  });
+      });
+  app.on('before-quit', event => { void quitCoordinator.request(event); });
   app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
   void app.whenReady().then(async () => {
     languageSettings = await preferences.load(app.getPreferredSystemLanguages());
